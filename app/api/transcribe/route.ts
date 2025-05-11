@@ -10,6 +10,7 @@ interface TranscriptionSegment {
   start: number;
   end: number;
   text: string;
+  speaker?: string;
 }
 
 interface LemonFoxResponse {
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
     formData.append('file', new Blob([audioFile]));
     formData.append('response_format', 'verbose_json');
     formData.append('timestamp_granularities[]', 'word');
+    formData.append('speaker_labels', 'true');
     // Let the API auto-detect the language
     // formData.append('language', 'auto');
 
@@ -79,7 +81,8 @@ export async function POST(request: Request) {
     const transcription = data.segments.map((segment: TranscriptionSegment) => ({
       start: segment.start,
       end: segment.end,
-      text: segment.text
+      text: segment.text,
+      speaker: segment.speaker || 'Unknown'
     }));
 
     return NextResponse.json({ 

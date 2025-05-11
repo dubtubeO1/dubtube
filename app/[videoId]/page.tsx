@@ -8,6 +8,7 @@ interface TranscriptionSegment {
   start: number;
   end: number;
   text: string;
+  speaker?: number;
 }
 
 export default function VideoPage() {
@@ -128,11 +129,16 @@ export default function VideoPage() {
                 </div>
                 <div className="space-y-2">
                   {transcription.map((segment, index) => (
-                    <div key={index} className="text-sm">
-                      <span className="text-gray-500 dark:text-gray-400">
-                        {formatTime(segment.start)} - {formatTime(segment.end)}:
-                      </span>
-                      <p className="mt-1">{segment.text}</p>
+                    <div key={index} className="mb-4">
+                      <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
+                        <span>{formatTime(segment.start)} - {formatTime(segment.end)}</span>
+                        {segment.speaker && (
+                          <span className="px-2 py-0.5 bg-gray-100 rounded-full">
+                            Speaker {segment.speaker}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-gray-800">{segment.text}</p>
                     </div>
                   ))}
                 </div>
