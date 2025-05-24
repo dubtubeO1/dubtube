@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
 interface TranscriptionSegment {
@@ -9,23 +9,52 @@ interface TranscriptionSegment {
   end: number;
   text: string;
   speaker?: number;
+  translation?: string;
 }
 
 export default function VideoPage() {
   const { videoId } = useParams();
+  const searchParams = useSearchParams();
+  const targetLang = searchParams.get('lang') || 'es';
+  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [transcription, setTranscription] = useState<TranscriptionSegment[]>([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
 
+  const translateSegment = async (text: string, targetLang: string) => {
+    try {
+      const response = await fetch('/api/translate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text,
+          targetLang,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Translation failed');
+      }
+
+      const data = await response.json();
+      return data.translation;
+    } catch (error) {
+      console.error('Translation error:', error);
+      return null;
+    }
+  };
+
   useEffect(() => {
-    const extractAudio = async () => {
+    const processVideo = async () => {
       try {
         setIsLoading(true);
         setError(null);
-        console.log('Starting audio extraction for video:', videoId);
 
         // Extract audio
         const response = await fetch('/api/extract-audio', {
@@ -42,13 +71,10 @@ export default function VideoPage() {
         }
 
         const data = await response.json();
-        console.log('Audio extraction successful:', data);
         setAudioUrl(data.audioUrl);
 
         // Start transcription
         setIsTranscribing(true);
-        console.log('Starting transcription for audio:', data.audioUrl);
-        
         const transcribeResponse = await fetch('/api/transcribe', {
           method: 'POST',
           headers: {
@@ -63,26 +89,33 @@ export default function VideoPage() {
         }
 
         const transcribeData = await transcribeResponse.json();
-        console.log('Transcription received:', transcribeData);
-
-        if (!Array.isArray(transcribeData.transcription)) {
-          console.error('Invalid transcription data:', transcribeData);
-          throw new Error('Invalid transcription data format');
-        }
-
-        setTranscription(transcribeData.transcription);
         setDetectedLanguage(transcribeData.language);
+
+        // Start translation
+        setIsTranslating(true);
+        const translatedSegments = await Promise.all(
+          transcribeData.transcription.map(async (segment: TranscriptionSegment) => {
+            const translation = await translateSegment(segment.text, targetLang);
+            return {
+              ...segment,
+              translation,
+            };
+          })
+        );
+
+        setTranscription(translatedSegments);
       } catch (err) {
-        console.error('Error in audio processing:', err);
+        console.error('Error in processing:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setIsLoading(false);
         setIsTranscribing(false);
+        setIsTranslating(false);
       }
     };
 
-    extractAudio();
-  }, [videoId]);
+    processVideo();
+  }, [videoId, targetLang]);
 
   if (isLoading) {
     return (
@@ -112,37 +145,66 @@ export default function VideoPage() {
               src={audioUrl}
             />
             
-            {isTranscribing ? (
+            {(isTranscribing || isTranslating) ? (
               <div className="flex items-center justify-center p-4">
                 <Loader2 className="w-6 h-6 animate-spin" />
-                <span className="ml-2">Transcribing audio...</span>
+                <span className="ml-2">
+                  {isTranscribing ? 'Transcribing audio...' : 'Translating...'}
+                </span>
               </div>
             ) : transcription.length > 0 ? (
-              <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                <div className="flex justify-between items-center mb-2">
-                  <h2 className="text-lg font-semibold">Transcription</h2>
-                  {detectedLanguage && (
-                    <span className="text-sm text-gray-500 dark:text-gray-400">
-                      Detected language: {detectedLanguage}
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {transcription.map((segment, index) => (
-                    <div key={index} className="mb-4">
-                      <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
-                        <span>{formatTime(segment.start)} - {formatTime(segment.end)}</span>
-                        {segment.speaker && (
-                          <span className="px-2 py-0.5 bg-gray-100 rounded-full">
-                            Speaker {segment.speaker}
-                          </span>
-                        )}
+              <>
+                {/* Original Transcription Box */}
+                <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                  <div className="flex justify-between items-center mb-2">
+                    <h2 className="text-lg font-semibold">Transcription</h2>
+                    {detectedLanguage && (
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        Detected language: {detectedLanguage}
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {transcription.map((segment, index) => (
+                      <div key={index} className="mb-4">
+                        <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
+                          <span>{formatTime(segment.start)} - {formatTime(segment.end)}</span>
+                          {segment.speaker && (
+                            <span className="px-2 py-0.5 bg-gray-100 rounded-full">
+                              Speaker {segment.speaker}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-gray-800 dark:text-gray-200 mb-2">{segment.text}</p>
                       </div>
-                      <p className="text-gray-800">{segment.text}</p>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+                {/* Translated Transcription Box */}
+                <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg mt-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h2 className="text-lg font-semibold">Translated Transcription</h2>
+                    <span className="text-sm text-blue-600 dark:text-blue-300">
+                      Target language: {targetLang.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {transcription.map((segment, index) => (
+                      <div key={index} className="mb-4">
+                        <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-300 mb-1">
+                          <span>{formatTime(segment.start)} - {formatTime(segment.end)}</span>
+                          {segment.speaker && (
+                            <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-800 rounded-full">
+                              Speaker {segment.speaker}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-blue-900 dark:text-blue-100 italic">{segment.translation}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
             ) : (
               <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-lg text-center">
                 No transcription available
