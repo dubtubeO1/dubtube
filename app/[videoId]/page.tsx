@@ -92,17 +92,28 @@ export default function VideoPage() {
         const transcribeData = await transcribeResponse.json();
         setDetectedLanguage(transcribeData.language);
 
-        // Start translation
+        // Start batch translation
         setIsTranslating(true);
-        const translatedSegments = await Promise.all(
-          transcribeData.transcription.map(async (segment: TranscriptionSegment) => {
-            const translation = await translateSegment(segment.text, targetLang);
-            return {
-              ...segment,
-              translation,
-            };
-          })
-        );
+        const textsToTranslate = transcribeData.transcription.map((segment: TranscriptionSegment) => segment.text);
+        const translateResponse = await fetch('/api/translate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            texts: textsToTranslate,
+            targetLang,
+          }),
+        });
+        if (!translateResponse.ok) {
+          throw new Error('Batch translation failed');
+        }
+        const translateData = await translateResponse.json();
+        const translations = translateData.translations;
+        const translatedSegments = transcribeData.transcription.map((segment: TranscriptionSegment, idx: number) => ({
+          ...segment,
+          translation: translations[idx],
+        }));
 
         setTranscription(translatedSegments);
 
