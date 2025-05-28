@@ -84,6 +84,8 @@ export default function Home() {
                        focus:ring-2 focus:ring-blue-500 focus:border-transparent
                        bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             >
+              <option value="en">English</option>
+              <option value="tr">Turkish</option>
               <option value="es">Spanish</option>
               <option value="fr">French</option>
               <option value="de">German</option>

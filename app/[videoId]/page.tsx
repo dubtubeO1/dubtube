@@ -24,6 +24,7 @@ export default function VideoPage() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
+  const [dubbedAudioUrl, setDubbedAudioUrl] = useState<string | null>(null);
 
   const translateSegment = async (text: string, targetLang: string) => {
     try {
@@ -104,6 +105,25 @@ export default function VideoPage() {
         );
 
         setTranscription(translatedSegments);
+
+        // Call dubbing API
+        const dubResponse = await fetch('/api/dub', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            transcription: transcribeData.transcription,
+            translatedTranscription: translatedSegments,
+            audioPath: data.audioUrl,
+          }),
+        });
+        if (dubResponse.ok) {
+          const dubData = await dubResponse.json();
+          setDubbedAudioUrl(dubData.dubbedAudioUrl);
+        } else {
+          setDubbedAudioUrl(null);
+        }
       } catch (err) {
         console.error('Error in processing:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -144,6 +164,13 @@ export default function VideoPage() {
               className="w-full"
               src={audioUrl}
             />
+            {dubbedAudioUrl && (
+              <audio
+                controls
+                className="w-full border-t-2 border-blue-400 mt-4"
+                src={dubbedAudioUrl}
+              />
+            )}
             
             {(isTranscribing || isTranslating) ? (
               <div className="flex items-center justify-center p-4">
