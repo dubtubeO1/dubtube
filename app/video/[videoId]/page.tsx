@@ -105,6 +105,12 @@ export default function VideoPage() {
 
   useEffect(() => {
     const processVideo = async () => {
+      if (!videoId || typeof videoId !== 'string' || videoId.trim() === '') {
+        setError('Invalid video ID');
+        setIsLoading(false);
+        return;
+      }
+
       try {
         setIsLoading(true);
         setError(null);
@@ -253,10 +259,4 @@ export default function VideoPage() {
       </div>
     </div>
   );
-}
-
-function formatTime(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 } 

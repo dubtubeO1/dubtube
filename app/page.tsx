@@ -28,8 +28,8 @@ export default function Home() {
 
     setIsLoading(true);
     try {
-      // Redirect to the video page
-      router.push(`/${videoId}?lang=${language}`);
+      // Redirect to the video page under the /video route
+      router.push(`/video/${videoId}?lang=${language}`);
     } catch (err) {
       setError('Failed to process video');
       console.error(err);
