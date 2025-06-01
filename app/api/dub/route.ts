@@ -353,6 +353,14 @@ export async function POST(request: Request) {
         message: 'Dubbed audio generation complete and final adjustment applied.'
       });
     }
+    // If no adjustment was needed, return the original dubbed file
+    return NextResponse.json({
+      speakerDurations,
+      speakerVoices,
+      speakerSegments,
+      dubbedAudioUrl: dubbedAudioFile.replace('public', ''),
+      message: 'Dubbed audio generation complete (no final adjustment needed).'
+    });
   } catch (error) {
     console.error('Error in dubbing route:', error);
     return NextResponse.json({ error: 'Failed to process dubbing request' }, { status: 500 });
