@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
@@ -26,6 +26,9 @@ export default function VideoPage() {
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [dubbedAudioUrl, setDubbedAudioUrl] = useState<string | null>(null);
 
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
   const translateSegment = async (text: string, targetLang: string) => {
     try {
       const response = await fetch('/api/translate', {
@@ -50,6 +53,55 @@ export default function VideoPage() {
       return null;
     }
   };
+
+  // Helper to post messages to the YouTube iframe
+  const postToYouTube = (command: string, value?: any) => {
+    if (!iframeRef.current) return;
+    iframeRef.current.contentWindow?.postMessage(
+      JSON.stringify({
+        event: 'command',
+        func: command,
+        args: value !== undefined ? [value] : [],
+      }),
+      '*'
+    );
+  };
+
+  // Sync audio and video
+  useEffect(() => {
+    if (!audioRef.current || !iframeRef.current) return;
+    // Mute video by default
+    postToYouTube('mute');
+    // Listen for audio play/pause/seek
+    const audio = audioRef.current;
+    const onPlay = () => postToYouTube('playVideo');
+    const onPause = () => postToYouTube('pauseVideo');
+    const onSeeked = () => postToYouTube('seekTo', audio.currentTime);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+    audio.addEventListener('seeked', onSeeked);
+    // Listen for YouTube events
+    const onMessage = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== 'string') return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.event === 'infoDelivery' && data.info) {
+          if (data.info.playerState === 1) audio.play(); // playing
+          if (data.info.playerState === 2) audio.pause(); // paused
+          if (typeof data.info.currentTime === 'number' && Math.abs(audio.currentTime - data.info.currentTime) > 0.5) {
+            audio.currentTime = data.info.currentTime;
+          }
+        }
+      } catch {}
+    };
+    window.addEventListener('message', onMessage);
+    return () => {
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('seeked', onSeeked);
+      window.removeEventListener('message', onMessage);
+    };
+  }, [dubbedAudioUrl]);
 
   useEffect(() => {
     const processVideo = async () => {
@@ -168,88 +220,36 @@ export default function VideoPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-2xl mx-auto">
-        {audioUrl && (
-          <div className="space-y-4">
-            <audio
-              controls
-              className="w-full"
-              src={audioUrl}
-            />
-            {dubbedAudioUrl && (
-              <audio
-                controls
-                className="w-full border-t-2 border-blue-400 mt-4"
-                src={dubbedAudioUrl}
-              />
-            )}
-            
-            {(isTranscribing || isTranslating) ? (
-              <div className="flex items-center justify-center p-4">
-                <Loader2 className="w-6 h-6 animate-spin" />
-                <span className="ml-2">
-                  {isTranscribing ? 'Transcribing audio...' : 'Translating...'}
-                </span>
-              </div>
-            ) : transcription.length > 0 ? (
-              <>
-                {/* Original Transcription Box */}
-                <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                  <div className="flex justify-between items-center mb-2">
-                    <h2 className="text-lg font-semibold">Transcription</h2>
-                    {detectedLanguage && (
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        Detected language: {detectedLanguage}
-                      </span>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {transcription.map((segment, index) => (
-                      <div key={index} className="mb-4">
-                        <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
-                          <span>{formatTime(segment.start)} - {formatTime(segment.end)}</span>
-                          {segment.speaker && (
-                            <span className="px-2 py-0.5 bg-gray-100 rounded-full">
-                              Speaker {segment.speaker}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-gray-800 dark:text-gray-200 mb-2">{segment.text}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {/* Translated Transcription Box */}
-                <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg mt-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <h2 className="text-lg font-semibold">Translated Transcription</h2>
-                    <span className="text-sm text-blue-600 dark:text-blue-300">
-                      Target language: {targetLang.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    {transcription.map((segment, index) => (
-                      <div key={index} className="mb-4">
-                        <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-300 mb-1">
-                          <span>{formatTime(segment.start)} - {formatTime(segment.end)}</span>
-                          {segment.speaker && (
-                            <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-800 rounded-full">
-                              Speaker {segment.speaker}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-blue-900 dark:text-blue-100 italic">{segment.translation}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-lg text-center">
-                No transcription available
-              </div>
-            )}
+        <div className="space-y-8">
+          {/* Embed YouTube video */}
+          <div className="aspect-w-16 aspect-h-9 w-full rounded-lg overflow-hidden shadow-lg">
+            <iframe
+              ref={iframeRef}
+              width="100%"
+              height="360"
+              src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1&mute=1`}
+              title="YouTube video player"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              className="w-full h-64 md:h-96"
+            ></iframe>
           </div>
-        )}
+          {/* Dubbed audio player */}
+          {dubbedAudioUrl ? (
+            <audio
+              ref={audioRef}
+              controls
+              className="w-full border-t-2 border-blue-400 mt-4"
+              src={dubbedAudioUrl}
+            />
+          ) : (
+            <div className="flex items-center justify-center p-4">
+              <Loader2 className="w-6 h-6 animate-spin" />
+              <span className="ml-2">Generating dubbed audio...</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
