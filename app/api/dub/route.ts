@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
+import { cleanupAudioFolders } from '@/app/utils/cleanup';
 
 interface TranscriptionSegment {
   start: number;
@@ -353,6 +354,10 @@ export async function POST(request: Request) {
         message: 'Dubbed audio generation complete and final adjustment applied.'
       });
     }
+
+    // After all processing is complete, run cleanup
+    await cleanupAudioFolders();
+
     // If no adjustment was needed, return the original dubbed file
     return NextResponse.json({
       speakerDurations,
