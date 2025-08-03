@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
-import { Loader2, CheckCircle, Circle } from 'lucide-react';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { Loader2, CheckCircle, Circle, Home, AlertCircle } from 'lucide-react';
 
 interface TranscriptionSegment {
   start: number;
@@ -21,6 +21,7 @@ interface ProgressStep {
 export default function VideoPage() {
   const { videoId } = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const targetLang = searchParams.get('lang') || 'es';
   
   const [isLoading, setIsLoading] = useState(true);
@@ -41,6 +42,9 @@ export default function VideoPage() {
     { id: 'finalize', label: 'Finalizing', status: 'pending' },
   ]);
 
+  // Error handling with redirect timeout
+  const redirectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
@@ -57,6 +61,40 @@ export default function VideoPage() {
   const getProgressPercentage = () => {
     const completedSteps = progressSteps.filter(step => step.status === 'completed').length;
     return (completedSteps / progressSteps.length) * 100;
+  };
+
+  // Handle error with simple redirect
+  const handleError = (errorMessage: string) => {
+    setError(errorMessage);
+    
+    // Clear any existing timeout
+    if (redirectTimeoutRef.current) {
+      clearTimeout(redirectTimeoutRef.current);
+    }
+    
+    // Set timeout to redirect after 10 seconds
+    redirectTimeoutRef.current = setTimeout(() => {
+      router.push('/');
+    }, 10000);
+  };
+
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (redirectTimeoutRef.current) {
+        clearTimeout(redirectTimeoutRef.current);
+        redirectTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  // Manual redirect function
+  const goHome = () => {
+    if (redirectTimeoutRef.current) {
+      clearTimeout(redirectTimeoutRef.current);
+      redirectTimeoutRef.current = null;
+    }
+    router.push('/');
   };
 
   const translateSegment = async (text: string, targetLang: string) => {
@@ -136,7 +174,7 @@ export default function VideoPage() {
   useEffect(() => {
     const processVideo = async () => {
       if (!videoId || typeof videoId !== 'string' || videoId.trim() === '') {
-        setError('Invalid video ID');
+        handleError('Invalid video ID');
         setIsLoading(false);
         return;
       }
@@ -163,7 +201,8 @@ export default function VideoPage() {
         if (!response.ok) {
           const errorData = await response.json();
           updateProgressStep('extract', 'error');
-          throw new Error(errorData.error || 'Failed to extract audio');
+          handleError(errorData.error || 'Failed to extract audio');
+          return;
         }
 
         const data = await response.json();
@@ -184,7 +223,8 @@ export default function VideoPage() {
         if (!transcribeResponse.ok) {
           const errorData = await transcribeResponse.json();
           updateProgressStep('transcribe', 'error');
-          throw new Error(errorData.error || 'Failed to transcribe audio');
+          handleError(errorData.error || 'Failed to transcribe audio');
+          return;
         }
 
         const transcribeData = await transcribeResponse.json();
@@ -207,7 +247,8 @@ export default function VideoPage() {
         });
         if (!translateResponse.ok) {
           updateProgressStep('translate', 'error');
-          throw new Error('Batch translation failed');
+          handleError('Translation failed');
+          return;
         }
         const translateData = await translateResponse.json();
         const translations = translateData.translations;
@@ -238,7 +279,8 @@ export default function VideoPage() {
           updateProgressStep('dub', 'completed');
         } else {
           updateProgressStep('dub', 'error');
-          setDubbedAudioUrl(null);
+          handleError('Failed to generate dubbed audio');
+          return;
         }
 
         // Step 5: Finalize
@@ -249,7 +291,7 @@ export default function VideoPage() {
 
       } catch (err) {
         console.error('Error in processing:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
+        handleError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setIsLoading(false);
         setIsTranscribing(false);
@@ -312,16 +354,50 @@ export default function VideoPage() {
     );
   };
 
+  // Error Component
+  const ErrorDisplay = () => {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-8">
+        <div className="w-full max-w-md space-y-6 text-center">
+          {/* Error Icon */}
+          <div className="flex justify-center">
+            <AlertCircle className="w-16 h-16 text-red-500" />
+          </div>
+          
+          {/* Error Message */}
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-gray-800">Oops! An error occurred :(</h2>
+            <p className="text-gray-600">Please try again later</p>
+          </div>
+          
+          {/* Redirect Message */}
+          <div className="bg-gray-100 rounded-lg p-4">
+            <p className="text-sm text-gray-600">
+              Redirecting to home page in 10 seconds...
+            </p>
+          </div>
+          
+          {/* Manual Action Button */}
+          <div className="flex justify-center">
+            <button
+              onClick={goHome}
+              className="flex items-center justify-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Home className="w-5 h-5" />
+              <span>Go Home Now</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (isLoading) {
     return <ProgressBar />;
   }
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-screen text-red-500">
-        Error: {error}
-      </div>
-    );
+    return <ErrorDisplay />;
   }
 
   return (
