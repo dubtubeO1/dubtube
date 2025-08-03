@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import { Loader2, CheckCircle, Circle } from 'lucide-react';
 
 interface TranscriptionSegment {
   start: number;
@@ -10,6 +10,12 @@ interface TranscriptionSegment {
   text: string;
   speaker?: number;
   translation?: string;
+}
+
+interface ProgressStep {
+  id: string;
+  label: string;
+  status: 'pending' | 'active' | 'completed' | 'error';
 }
 
 export default function VideoPage() {
@@ -25,9 +31,33 @@ export default function VideoPage() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [dubbedAudioUrl, setDubbedAudioUrl] = useState<string | null>(null);
+  
+  // Progress tracking
+  const [progressSteps, setProgressSteps] = useState<ProgressStep[]>([
+    { id: 'extract', label: 'Extracting audio', status: 'pending' },
+    { id: 'transcribe', label: 'Transcribing audio', status: 'pending' },
+    { id: 'translate', label: 'Translating text', status: 'pending' },
+    { id: 'dub', label: 'Generating dubbed audio', status: 'pending' },
+    { id: 'finalize', label: 'Finalizing', status: 'pending' },
+  ]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Helper function to update progress steps
+  const updateProgressStep = (stepId: string, status: ProgressStep['status']) => {
+    setProgressSteps(prev => 
+      prev.map(step => 
+        step.id === stepId ? { ...step, status } : step
+      )
+    );
+  };
+
+  // Helper function to get current progress percentage
+  const getProgressPercentage = () => {
+    const completedSteps = progressSteps.filter(step => step.status === 'completed').length;
+    return (completedSteps / progressSteps.length) * 100;
+  };
 
   const translateSegment = async (text: string, targetLang: string) => {
     try {
@@ -114,8 +144,14 @@ export default function VideoPage() {
       try {
         setIsLoading(true);
         setError(null);
+        
+        // Reset progress steps
+        setProgressSteps(prev => 
+          prev.map(step => ({ ...step, status: 'pending' }))
+        );
 
-        // Extract audio
+        // Step 1: Extract audio
+        updateProgressStep('extract', 'active');
         const response = await fetch('/api/extract-audio', {
           method: 'POST',
           headers: {
@@ -126,13 +162,16 @@ export default function VideoPage() {
 
         if (!response.ok) {
           const errorData = await response.json();
+          updateProgressStep('extract', 'error');
           throw new Error(errorData.error || 'Failed to extract audio');
         }
 
         const data = await response.json();
         setAudioUrl(data.audioUrl);
+        updateProgressStep('extract', 'completed');
 
-        // Start transcription
+        // Step 2: Start transcription
+        updateProgressStep('transcribe', 'active');
         setIsTranscribing(true);
         const transcribeResponse = await fetch('/api/transcribe', {
           method: 'POST',
@@ -144,13 +183,16 @@ export default function VideoPage() {
 
         if (!transcribeResponse.ok) {
           const errorData = await transcribeResponse.json();
+          updateProgressStep('transcribe', 'error');
           throw new Error(errorData.error || 'Failed to transcribe audio');
         }
 
         const transcribeData = await transcribeResponse.json();
         setDetectedLanguage(transcribeData.language);
+        updateProgressStep('transcribe', 'completed');
 
-        // Start batch translation
+        // Step 3: Start batch translation
+        updateProgressStep('translate', 'active');
         setIsTranslating(true);
         const textsToTranslate = transcribeData.transcription.map((segment: TranscriptionSegment) => segment.text);
         const translateResponse = await fetch('/api/translate', {
@@ -164,6 +206,7 @@ export default function VideoPage() {
           }),
         });
         if (!translateResponse.ok) {
+          updateProgressStep('translate', 'error');
           throw new Error('Batch translation failed');
         }
         const translateData = await translateResponse.json();
@@ -174,8 +217,10 @@ export default function VideoPage() {
         }));
 
         setTranscription(translatedSegments);
+        updateProgressStep('translate', 'completed');
 
-        // Call dubbing API
+        // Step 4: Call dubbing API
+        updateProgressStep('dub', 'active');
         const dubResponse = await fetch('/api/dub', {
           method: 'POST',
           headers: {
@@ -190,9 +235,18 @@ export default function VideoPage() {
         if (dubResponse.ok) {
           const dubData = await dubResponse.json();
           setDubbedAudioUrl(dubData.dubbedAudioUrl);
+          updateProgressStep('dub', 'completed');
         } else {
+          updateProgressStep('dub', 'error');
           setDubbedAudioUrl(null);
         }
+
+        // Step 5: Finalize
+        updateProgressStep('finalize', 'active');
+        // Small delay to show finalization step
+        await new Promise(resolve => setTimeout(resolve, 500));
+        updateProgressStep('finalize', 'completed');
+
       } catch (err) {
         console.error('Error in processing:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -206,13 +260,60 @@ export default function VideoPage() {
     processVideo();
   }, [videoId, targetLang]);
 
-  if (isLoading) {
+  // Progress Bar Component
+  const ProgressBar = () => {
+    const percentage = getProgressPercentage();
+    
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin" />
-        <span className="ml-2">Extracting audio...</span>
+      <div className="flex flex-col items-center justify-center min-h-screen p-8">
+        <div className="w-full max-w-md space-y-6">
+          {/* Progress Bar */}
+          <div className="w-full bg-gray-200 rounded-full h-3">
+            <div 
+              className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${percentage}%` }}
+            ></div>
+          </div>
+          
+          {/* Progress Percentage */}
+          <div className="text-center">
+            <span className="text-2xl font-bold text-blue-600">{Math.round(percentage)}%</span>
+            <span className="text-gray-500 ml-2">Complete</span>
+          </div>
+          
+          {/* Progress Steps */}
+          <div className="space-y-3">
+            {progressSteps.map((step, index) => (
+              <div key={step.id} className="flex items-center space-x-3">
+                {step.status === 'completed' ? (
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                ) : step.status === 'active' ? (
+                  <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                ) : step.status === 'error' ? (
+                  <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+                    <span className="text-white text-xs">!</span>
+                  </div>
+                ) : (
+                  <Circle className="w-5 h-5 text-gray-400" />
+                )}
+                <span className={`text-sm ${
+                  step.status === 'completed' ? 'text-green-600 font-medium' :
+                  step.status === 'active' ? 'text-blue-600 font-medium' :
+                  step.status === 'error' ? 'text-red-600 font-medium' :
+                  'text-gray-500'
+                }`}>
+                  {step.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
+  };
+
+  if (isLoading) {
+    return <ProgressBar />;
   }
 
   if (error) {
