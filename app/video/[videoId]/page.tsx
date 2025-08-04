@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
-import { Loader2, CheckCircle, Circle, Home, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle, Circle, Home, AlertCircle, Link, Link2Off } from 'lucide-react';
 
 interface TranscriptionSegment {
   start: number;
@@ -32,6 +32,7 @@ export default function VideoPage() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [dubbedAudioUrl, setDubbedAudioUrl] = useState<string | null>(null);
+  const [isSyncEnabled, setIsSyncEnabled] = useState(true); // Default to enabled
   
   // Progress tracking
   const [progressSteps, setProgressSteps] = useState<ProgressStep[]>([
@@ -47,6 +48,7 @@ export default function VideoPage() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const playerRef = useRef<any>(null); // YouTube player reference
 
   // Helper function to update progress steps
   const updateProgressStep = (stepId: string, status: ProgressStep['status']) => {
@@ -122,54 +124,133 @@ export default function VideoPage() {
     }
   };
 
-  // Helper to post messages to the YouTube iframe
-  const postToYouTube = (command: string, value?: any) => {
-    if (!iframeRef.current) return;
-    iframeRef.current.contentWindow?.postMessage(
-      JSON.stringify({
-        event: 'command',
-        func: command,
-        args: value !== undefined ? [value] : [],
-      }),
-      '*'
-    );
-  };
-
-  // Sync audio and video
+  // Initialize YouTube Player API
   useEffect(() => {
-    if (!audioRef.current || !iframeRef.current) return;
-    // Mute video by default
-    postToYouTube('mute');
-    // Listen for audio play/pause/seek
-    const audio = audioRef.current;
-    const onPlay = () => postToYouTube('playVideo');
-    const onPause = () => postToYouTube('pauseVideo');
-    const onSeeked = () => postToYouTube('seekTo', audio.currentTime);
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('pause', onPause);
-    audio.addEventListener('seeked', onSeeked);
-    // Listen for YouTube events
-    const onMessage = (event: MessageEvent) => {
-      if (!event.data || typeof event.data !== 'string') return;
-      try {
-        const data = JSON.parse(event.data);
-        if (data.event === 'infoDelivery' && data.info) {
-          if (data.info.playerState === 1) audio.play(); // playing
-          if (data.info.playerState === 2) audio.pause(); // paused
-          if (typeof data.info.currentTime === 'number' && Math.abs(audio.currentTime - data.info.currentTime) > 0.5) {
-            audio.currentTime = data.info.currentTime;
+    // Load YouTube API script if not already loaded
+    if (!(window as any).YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    }
+
+    // Initialize player when API is ready
+    const initializePlayer = () => {
+      if (!videoId || typeof videoId !== 'string') return;
+      
+      // Create a new div for the player
+      const playerDiv = document.createElement('div');
+      playerDiv.id = 'youtube-player';
+      
+      // Find the iframe container and replace it
+      const iframeContainer = iframeRef.current?.parentNode;
+      if (iframeContainer && iframeRef.current) {
+        iframeContainer.replaceChild(playerDiv, iframeRef.current);
+      }
+      
+      playerRef.current = new (window as any).YT.Player('youtube-player', {
+        height: '360',
+        width: '100%',
+        videoId: videoId,
+        playerVars: {
+          enablejsapi: 1,
+          mute: 1,
+          origin: window.location.origin,
+        },
+        events: {
+          onReady: (event: any) => {
+            console.log('YouTube player ready');
+          },
+          onStateChange: (event: any) => {
+            if (!isSyncEnabled || !audioRef.current) return;
+            
+            const audio = audioRef.current;
+            const playerState = event.data;
+            
+            // Sync video state changes to audio
+            if (playerState === 1 && audio.paused) { // Playing
+              audio.play().catch(console.error);
+            } else if (playerState === 2 && !audio.paused) { // Paused
+              audio.pause();
+            }
+          },
+          onError: (event: any) => {
+            console.error('YouTube player error:', event.data);
           }
         }
-      } catch {}
+      });
     };
-    window.addEventListener('message', onMessage);
+
+    // Check if API is already loaded
+    if ((window as any).YT && (window as any).YT.Player) {
+      initializePlayer();
+    } else {
+      (window as any).onYouTubeIframeAPIReady = initializePlayer;
+    }
+
     return () => {
-      audio.removeEventListener('play', onPlay);
-      audio.removeEventListener('pause', onPause);
-      audio.removeEventListener('seeked', onSeeked);
-      window.removeEventListener('message', onMessage);
+      if (playerRef.current) {
+        playerRef.current.destroy();
+      }
     };
-  }, [dubbedAudioUrl]);
+  }, [videoId, isSyncEnabled]);
+
+  // Sync audio and video with toggle support
+  useEffect(() => {
+    if (!audioRef.current || !playerRef.current || !isSyncEnabled) return;
+    
+    const audio = audioRef.current;
+    const player = playerRef.current;
+    
+    // Audio event listeners
+    const onAudioPlay = () => {
+      if (isSyncEnabled && player.getPlayerState() !== 1) {
+        player.playVideo();
+      }
+    };
+    
+    const onAudioPause = () => {
+      if (isSyncEnabled && player.getPlayerState() !== 2) {
+        player.pauseVideo();
+      }
+    };
+    
+    const onAudioSeeked = () => {
+      if (isSyncEnabled) {
+        const timeDiff = Math.abs(audio.currentTime - player.getCurrentTime());
+        if (timeDiff > 0.5) {
+          player.seekTo(audio.currentTime, true);
+        }
+      }
+    };
+    
+    // Video event listeners (handled in player events above)
+    
+    // Add event listeners
+    audio.addEventListener('play', onAudioPlay);
+    audio.addEventListener('pause', onAudioPause);
+    audio.addEventListener('seeked', onAudioSeeked);
+    
+    // Periodic sync check for seeking
+    const syncInterval = setInterval(() => {
+      if (isSyncEnabled && audio && player) {
+        const timeDiff = Math.abs(audio.currentTime - player.getCurrentTime());
+        if (timeDiff > 0.5) {
+          // If video was seeked, sync audio
+          if (Math.abs(audio.currentTime - player.getCurrentTime()) > 1) {
+            audio.currentTime = player.getCurrentTime();
+          }
+        }
+      }
+    }, 1000);
+    
+    return () => {
+      audio.removeEventListener('play', onAudioPlay);
+      audio.removeEventListener('pause', onAudioPause);
+      audio.removeEventListener('seeked', onAudioSeeked);
+      clearInterval(syncInterval);
+    };
+  }, [dubbedAudioUrl, isSyncEnabled]);
 
   useEffect(() => {
     const processVideo = async () => {
@@ -418,6 +499,33 @@ export default function VideoPage() {
               className="w-full h-64 md:h-96"
             ></iframe>
           </div>
+          
+          {/* Sync Toggle */}
+          {dubbedAudioUrl && (
+            <div className="flex items-center justify-center py-4">
+              <button
+                onClick={() => setIsSyncEnabled(!isSyncEnabled)}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-full transition-all duration-300 ${
+                  isSyncEnabled
+                    ? 'bg-green-500 text-white shadow-lg shadow-green-500/50'
+                    : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
+                }`}
+              >
+                {isSyncEnabled ? (
+                  <>
+                    <Link className="w-4 h-4" />
+                    <span className="text-sm font-medium">Sync Enabled</span>
+                  </>
+                ) : (
+                  <>
+                    <Link2Off className="w-4 h-4" />
+                    <span className="text-sm font-medium">Sync Disabled</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+          
           {/* Dubbed audio player */}
           {dubbedAudioUrl ? (
             <audio
