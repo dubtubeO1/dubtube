@@ -33,6 +33,8 @@ export default function VideoPage() {
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [dubbedAudioUrl, setDubbedAudioUrl] = useState<string | null>(null);
   const [isSyncEnabled, setIsSyncEnabled] = useState(true); // Default to enabled
+  const [isPlayerReady, setIsPlayerReady] = useState(false); // Track player readiness
+  const [isAudioReady, setIsAudioReady] = useState(false); // Track audio readiness
   
   // Progress tracking
   const [progressSteps, setProgressSteps] = useState<ProgressStep[]>([
@@ -138,28 +140,24 @@ export default function VideoPage() {
     const initializePlayer = () => {
       if (!videoId || typeof videoId !== 'string') return;
       
-      // Create a new div for the player
-      const playerDiv = document.createElement('div');
-      playerDiv.id = 'youtube-player';
+      // Reset player ready state
+      setIsPlayerReady(false);
       
-      // Find the iframe container and replace it
-      const iframeContainer = iframeRef.current?.parentNode;
-      if (iframeContainer && iframeRef.current) {
-        iframeContainer.replaceChild(playerDiv, iframeRef.current);
+      // Use the existing iframe directly
+      if (!iframeRef.current) {
+        console.log('Iframe not found, waiting...');
+        setTimeout(initializePlayer, 100);
+        return;
       }
       
-      playerRef.current = new (window as any).YT.Player('youtube-player', {
-        height: '360',
-        width: '100%',
-        videoId: videoId,
-        playerVars: {
-          enablejsapi: 1,
-          mute: 1,
-          origin: window.location.origin,
-        },
+      console.log('Initializing YouTube player...');
+      
+      // Create player on the existing iframe
+      playerRef.current = new (window as any).YT.Player(iframeRef.current, {
         events: {
           onReady: (event: any) => {
             console.log('YouTube player ready');
+            setIsPlayerReady(true);
           },
           onStateChange: (event: any) => {
             if (!isSyncEnabled || !audioRef.current) return;
@@ -197,34 +195,49 @@ export default function VideoPage() {
 
   // Sync audio and video with toggle support
   useEffect(() => {
-    if (!audioRef.current || !playerRef.current || !isSyncEnabled) return;
+    if (!audioRef.current || !playerRef.current || !isSyncEnabled || !isPlayerReady || !isAudioReady) {
+      console.log('Sync not ready:', {
+        audio: !!audioRef.current,
+        player: !!playerRef.current,
+        syncEnabled: isSyncEnabled,
+        playerReady: isPlayerReady,
+        audioReady: isAudioReady
+      });
+      return;
+    }
+    
+    console.log('Starting sync setup...');
     
     const audio = audioRef.current;
     const player = playerRef.current;
     
     // Audio event listeners
     const onAudioPlay = () => {
+      console.log('Audio play event');
       if (isSyncEnabled && player.getPlayerState() !== 1) {
+        console.log('Syncing video to play');
         player.playVideo();
       }
     };
     
     const onAudioPause = () => {
+      console.log('Audio pause event');
       if (isSyncEnabled && player.getPlayerState() !== 2) {
+        console.log('Syncing video to pause');
         player.pauseVideo();
       }
     };
     
     const onAudioSeeked = () => {
+      console.log('Audio seek event');
       if (isSyncEnabled) {
         const timeDiff = Math.abs(audio.currentTime - player.getCurrentTime());
         if (timeDiff > 0.5) {
+          console.log('Syncing video seek to:', audio.currentTime);
           player.seekTo(audio.currentTime, true);
         }
       }
     };
-    
-    // Video event listeners (handled in player events above)
     
     // Add event listeners
     audio.addEventListener('play', onAudioPlay);
@@ -238,19 +251,104 @@ export default function VideoPage() {
         if (timeDiff > 0.5) {
           // If video was seeked, sync audio
           if (Math.abs(audio.currentTime - player.getCurrentTime()) > 1) {
+            console.log('Syncing audio to video time:', player.getCurrentTime());
             audio.currentTime = player.getCurrentTime();
           }
         }
       }
     }, 1000);
     
+    console.log('Sync setup complete');
+    
     return () => {
+      console.log('Cleaning up sync listeners');
       audio.removeEventListener('play', onAudioPlay);
       audio.removeEventListener('pause', onAudioPause);
       audio.removeEventListener('seeked', onAudioSeeked);
       clearInterval(syncInterval);
     };
-  }, [dubbedAudioUrl, isSyncEnabled]);
+  }, [dubbedAudioUrl, isSyncEnabled, isPlayerReady, isAudioReady]);
+
+  // Track audio readiness
+  useEffect(() => {
+    console.log('Audio readiness effect:', { 
+      hasAudio: !!audioRef.current, 
+      hasUrl: !!dubbedAudioUrl,
+      readyState: audioRef.current?.readyState 
+    });
+    
+    if (!audioRef.current || !dubbedAudioUrl) {
+      console.log('Audio not ready - missing ref or URL');
+      setIsAudioReady(false);
+      return;
+    }
+
+    const audio = audioRef.current;
+    
+    const onCanPlay = () => {
+      console.log('Audio can play - ready for sync');
+      setIsAudioReady(true);
+    };
+    
+    const onLoadedData = () => {
+      console.log('Audio loaded data');
+    };
+    
+    const onLoadStart = () => {
+      console.log('Audio load started');
+      setIsAudioReady(false);
+    };
+    
+    const onLoadedMetadata = () => {
+      console.log('Audio loaded metadata');
+    };
+    
+    audio.addEventListener('canplay', onCanPlay);
+    audio.addEventListener('loadeddata', onLoadedData);
+    audio.addEventListener('loadstart', onLoadStart);
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    
+    // If audio is already loaded, set ready
+    if (audio.readyState >= 2) {
+      console.log('Audio already loaded, readyState:', audio.readyState);
+      setIsAudioReady(true);
+    } else {
+      console.log('Audio not loaded yet, readyState:', audio.readyState);
+    }
+    
+    return () => {
+      audio.removeEventListener('canplay', onCanPlay);
+      audio.removeEventListener('loadeddata', onLoadedData);
+      audio.removeEventListener('loadstart', onLoadStart);
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+    };
+  }, [dubbedAudioUrl]);
+
+  // Manual check for readiness after a delay
+  useEffect(() => {
+    if (!dubbedAudioUrl) return;
+    
+    const checkReadiness = () => {
+      console.log('Manual readiness check:', {
+        audio: !!audioRef.current,
+        player: !!playerRef.current,
+        playerReady: isPlayerReady,
+        audioReady: isAudioReady,
+        audioReadyState: audioRef.current?.readyState
+      });
+      
+      // Force check audio ready state
+      if (audioRef.current && audioRef.current.readyState >= 2 && !isAudioReady) {
+        console.log('Forcing audio ready state');
+        setIsAudioReady(true);
+      }
+    };
+    
+    // Check after 2 seconds
+    const timer = setTimeout(checkReadiness, 2000);
+    
+    return () => clearTimeout(timer);
+  }, [dubbedAudioUrl, isPlayerReady, isAudioReady]);
 
   useEffect(() => {
     const processVideo = async () => {
@@ -369,6 +467,9 @@ export default function VideoPage() {
         // Small delay to show finalization step
         await new Promise(resolve => setTimeout(resolve, 500));
         updateProgressStep('finalize', 'completed');
+        
+        // Reset audio ready state when new audio is set
+        setIsAudioReady(false);
 
       } catch (err) {
         console.error('Error in processing:', err);
@@ -510,11 +611,14 @@ export default function VideoPage() {
                     ? 'bg-green-500 text-white shadow-lg shadow-green-500/50'
                     : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
                 }`}
+                disabled={!isPlayerReady || !isAudioReady}
               >
                 {isSyncEnabled ? (
                   <>
                     <Link className="w-4 h-4" />
-                    <span className="text-sm font-medium">Sync Enabled</span>
+                    <span className="text-sm font-medium">
+                      Sync Enabled {(!isPlayerReady || !isAudioReady) && '(Loading...)'}
+                    </span>
                   </>
                 ) : (
                   <>
