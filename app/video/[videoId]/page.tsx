@@ -35,6 +35,7 @@ export default function VideoPage() {
   const [isSyncEnabled, setIsSyncEnabled] = useState(true); // Default to enabled
   const [isPlayerReady, setIsPlayerReady] = useState(false); // Track player readiness
   const [isAudioReady, setIsAudioReady] = useState(false); // Track audio readiness
+  const [showSkeletons, setShowSkeletons] = useState(false); // Track skeleton visibility
   
   // Progress tracking
   const [progressSteps, setProgressSteps] = useState<ProgressStep[]>([
@@ -350,6 +351,35 @@ export default function VideoPage() {
     return () => clearTimeout(timer);
   }, [dubbedAudioUrl, isPlayerReady, isAudioReady]);
 
+  // Hide skeletons when sync is ready
+  useEffect(() => {
+    console.log('Skeleton hide check:', {
+      isPlayerReady,
+      isAudioReady,
+      showSkeletons,
+      dubbedAudioUrl: !!dubbedAudioUrl
+    });
+    
+    if (isPlayerReady && isAudioReady && showSkeletons) {
+      console.log('Hiding skeletons - sync is ready');
+      const timer = setTimeout(() => {
+        setShowSkeletons(false);
+      }, 500); // Small delay to ensure smooth transition
+      
+      return () => clearTimeout(timer);
+    }
+    
+    // Fallback: hide skeletons after 5 seconds if they're still showing
+    if (showSkeletons && dubbedAudioUrl) {
+      const fallbackTimer = setTimeout(() => {
+        console.log('Fallback: hiding skeletons after timeout');
+        setShowSkeletons(false);
+      }, 5000);
+      
+      return () => clearTimeout(fallbackTimer);
+    }
+  }, [isPlayerReady, isAudioReady, showSkeletons, dubbedAudioUrl]);
+
   useEffect(() => {
     const processVideo = async () => {
       if (!videoId || typeof videoId !== 'string' || videoId.trim() === '') {
@@ -470,6 +500,9 @@ export default function VideoPage() {
         
         // Reset audio ready state when new audio is set
         setIsAudioReady(false);
+        
+        // Show skeletons after processing is complete
+        setShowSkeletons(true);
 
       } catch (err) {
         console.error('Error in processing:', err);
@@ -580,6 +613,47 @@ export default function VideoPage() {
 
   if (error) {
     return <ErrorDisplay />;
+  }
+
+  // Skeleton Loading Component
+  const SkeletonLoader = () => {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-2xl mx-auto">
+          <div className="space-y-8">
+            {/* Video skeleton */}
+            <div className="w-full h-64 md:h-96 rounded-lg overflow-hidden shadow-lg bg-gray-200 animate-pulse relative">
+              <div className="absolute inset-0 animate-shimmer"></div>
+            </div>
+            
+            {/* Sync toggle skeleton */}
+            <div className="flex items-center justify-center py-4">
+              <div className="w-32 h-10 bg-gray-200 rounded-full animate-pulse relative">
+                <div className="absolute inset-0 animate-shimmer"></div>
+              </div>
+            </div>
+            
+            {/* Audio player skeleton */}
+            <div className="w-full h-16 bg-gray-200 rounded-lg animate-pulse relative">
+              <div className="absolute inset-0 animate-shimmer"></div>
+            </div>
+            
+            {/* Loading message */}
+            <div className="text-center">
+              <div className="inline-flex items-center space-x-2 text-gray-600">
+                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <span>Loading...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Show skeletons while sync is being prepared
+  if (showSkeletons) {
+    return <SkeletonLoader />;
   }
 
   return (
