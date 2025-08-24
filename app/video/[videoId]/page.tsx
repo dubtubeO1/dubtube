@@ -522,42 +522,63 @@ export default function VideoPage() {
     const percentage = getProgressPercentage();
     
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen p-8">
-        <div className="w-full max-w-md space-y-6">
-          {/* Progress Bar */}
-          <div className="w-full bg-gray-200 rounded-full h-3">
-            <div 
-              className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${percentage}%` }}
-            ></div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+        {/* Floating background blobs */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-r from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+          <div className="absolute top-40 right-10 w-72 h-72 bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+          <div className="absolute -bottom-8 left-20 w-72 h-72 bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+        </div>
+
+        <div className="relative z-10 w-full max-w-2xl space-y-8">
+          {/* Header */}
+          <div className="text-center space-y-4">
+            <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 dark:from-slate-200 dark:via-slate-300 dark:to-slate-400 bg-clip-text text-transparent">
+              Processing Video
+            </h1>
+            <p className="text-slate-600 dark:text-slate-300 font-light text-lg">
+              Translating your YouTube video with perfect audio synchronization
+            </p>
           </div>
-          
-          {/* Progress Percentage */}
-          <div className="text-center">
-            <span className="text-2xl font-bold text-blue-600">{Math.round(percentage)}%</span>
-            <span className="text-gray-500 ml-2">Complete</span>
+
+          {/* Progress Bar */}
+          <div className="space-y-6">
+            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-2xl h-4 overflow-hidden">
+              <div 
+                className="bg-gradient-to-r from-slate-600 to-slate-500 dark:from-slate-400 dark:to-slate-300 h-4 rounded-2xl transition-all duration-700 ease-out shadow-lg"
+                style={{ width: `${percentage}%` }}
+              ></div>
+            </div>
+            
+            {/* Progress Percentage */}
+            <div className="text-center">
+              <span className="text-3xl font-bold bg-gradient-to-r from-slate-700 to-slate-500 dark:from-slate-300 dark:to-slate-400 bg-clip-text text-transparent">
+                {Math.round(percentage)}%
+              </span>
+              <span className="text-slate-500 dark:text-slate-400 ml-2 font-light">Complete</span>
+            </div>
           </div>
           
           {/* Progress Steps */}
-          <div className="space-y-3">
+          <div className="space-y-4">
             {progressSteps.map((step, index) => (
-              <div key={step.id} className="flex items-center space-x-3">
+              <div key={step.id} className="flex items-center space-x-4 p-4 rounded-2xl bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-slate-200 dark:border-slate-700 transition-all duration-300">
                 {step.status === 'completed' ? (
-                  <CheckCircle className="w-5 h-5 text-green-500" />
+                  <CheckCircle className="w-6 h-6 text-green-500" />
                 ) : step.status === 'active' ? (
-                  <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                  <Loader2 className="w-6 h-6 text-slate-600 dark:text-slate-300 animate-spin" />
                 ) : step.status === 'error' ? (
-                  <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
-                    <span className="text-white text-xs">!</span>
+                  <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center">
+                    <span className="text-white text-xs font-bold">!</span>
                   </div>
                 ) : (
-                  <Circle className="w-5 h-5 text-gray-400" />
+                  <Circle className="w-6 h-6 text-slate-400 dark:text-slate-500" />
                 )}
-                <span className={`text-sm ${
-                  step.status === 'completed' ? 'text-green-600 font-medium' :
-                  step.status === 'active' ? 'text-blue-600 font-medium' :
-                  step.status === 'error' ? 'text-red-600 font-medium' :
-                  'text-gray-500'
+                <span className={`text-lg font-medium ${
+                  step.status === 'completed' ? 'text-green-600 dark:text-green-400' :
+                  step.status === 'active' ? 'text-slate-700 dark:text-slate-200' :
+                  step.status === 'error' ? 'text-red-600 dark:text-red-400' :
+                  'text-slate-500 dark:text-slate-400'
                 }`}>
                   {step.label}
                 </span>
@@ -572,22 +593,33 @@ export default function VideoPage() {
   // Error Component
   const ErrorDisplay = () => {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen p-8">
-        <div className="w-full max-w-md space-y-6 text-center">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+        {/* Floating background blobs */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-r from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+          <div className="absolute top-40 right-10 w-72 h-72 bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+          <div className="absolute -bottom-8 left-20 w-72 h-72 bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+        </div>
+
+        <div className="relative z-10 w-full max-w-md space-y-8 text-center">
           {/* Error Icon */}
           <div className="flex justify-center">
-            <AlertCircle className="w-16 h-16 text-red-500" />
+            <AlertCircle className="w-20 h-20 text-red-500" />
           </div>
           
           {/* Error Message */}
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-gray-800">Oops! An error occurred :(</h2>
-            <p className="text-gray-600">Please try again later</p>
+          <div className="space-y-4">
+            <h2 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-700 to-slate-500 dark:from-slate-300 dark:to-slate-400 bg-clip-text text-transparent">
+              Oops! An error occurred
+            </h2>
+            <p className="text-slate-600 dark:text-slate-300 font-light text-lg">
+              Please try again later
+            </p>
           </div>
           
           {/* Redirect Message */}
-          <div className="bg-gray-100 rounded-lg p-4">
-            <p className="text-sm text-gray-600">
+          <div className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 dark:border-slate-700">
+            <p className="text-slate-600 dark:text-slate-300 font-light">
               Redirecting to home page in 10 seconds...
             </p>
           </div>
@@ -596,10 +628,10 @@ export default function VideoPage() {
           <div className="flex justify-center">
             <button
               onClick={goHome}
-              className="flex items-center justify-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex items-center justify-center space-x-3 bg-gradient-to-r from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white px-8 py-4 rounded-2xl hover:from-slate-800 hover:to-slate-700 dark:hover:from-slate-500 dark:hover:to-slate-400 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
             >
               <Home className="w-5 h-5" />
-              <span>Go Home Now</span>
+              <span className="font-medium">Go Home Now</span>
             </button>
           </div>
         </div>
@@ -618,31 +650,40 @@ export default function VideoPage() {
   // Skeleton Loading Component
   const SkeletonLoader = () => {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-2xl mx-auto">
-          <div className="space-y-8">
-            {/* Video skeleton */}
-            <div className="w-full h-64 md:h-96 rounded-lg overflow-hidden shadow-lg bg-gray-200 animate-pulse relative">
-              <div className="absolute inset-0 animate-shimmer"></div>
-            </div>
-            
-            {/* Sync toggle skeleton */}
-            <div className="flex items-center justify-center py-4">
-              <div className="w-32 h-10 bg-gray-200 rounded-full animate-pulse relative">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 relative overflow-hidden">
+        {/* Floating background blobs */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-r from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+          <div className="absolute top-40 right-10 w-72 h-72 bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+          <div className="absolute -bottom-8 left-20 w-72 h-72 bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+        </div>
+
+        <div className="relative z-10 container mx-auto px-4 py-8">
+          <div className="max-w-2xl mx-auto">
+            <div className="space-y-8">
+              {/* Video skeleton */}
+              <div className="w-full h-64 md:h-96 rounded-2xl overflow-hidden shadow-lg bg-slate-200 dark:bg-slate-700 animate-pulse relative">
                 <div className="absolute inset-0 animate-shimmer"></div>
               </div>
-            </div>
-            
-            {/* Audio player skeleton */}
-            <div className="w-full h-16 bg-gray-200 rounded-lg animate-pulse relative">
-              <div className="absolute inset-0 animate-shimmer"></div>
-            </div>
-            
-            {/* Loading message */}
-            <div className="text-center">
-              <div className="inline-flex items-center space-x-2 text-gray-600">
-                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                <span>Loading...</span>
+              
+              {/* Sync toggle skeleton */}
+              <div className="flex items-center justify-center py-4">
+                <div className="w-32 h-10 bg-slate-200 dark:bg-slate-700 rounded-full animate-pulse relative">
+                  <div className="absolute inset-0 animate-shimmer"></div>
+                </div>
+              </div>
+              
+              {/* Audio player skeleton */}
+              <div className="w-full h-16 bg-slate-200 dark:bg-slate-700 rounded-2xl animate-pulse relative">
+                <div className="absolute inset-0 animate-shimmer"></div>
+              </div>
+              
+              {/* Loading message */}
+              <div className="text-center">
+                <div className="inline-flex items-center space-x-3 text-slate-600 dark:text-slate-300">
+                  <div className="w-5 h-5 border-2 border-slate-600 dark:border-slate-300 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="font-light">Loading...</span>
+                </div>
               </div>
             </div>
           </div>
@@ -657,67 +698,91 @@ export default function VideoPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="max-w-2xl mx-auto">
-        <div className="space-y-8">
-          {/* Embed YouTube video */}
-          <div className="aspect-w-16 aspect-h-9 w-full rounded-lg overflow-hidden shadow-lg">
-            <iframe
-              ref={iframeRef}
-              width="100%"
-              height="360"
-              src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1&mute=1`}
-              title="YouTube video player"
-              frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              className="w-full h-64 md:h-96"
-            ></iframe>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 relative overflow-hidden">
+      {/* Floating background blobs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-r from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+        <div className="absolute top-40 right-10 w-72 h-72 bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+      </div>
+
+      <div className="relative z-10 container mx-auto px-4 py-8">
+        <div className="max-w-2xl mx-auto">
+          <div className="space-y-8">
+            {/* Header */}
+            <div className="text-center space-y-4">
+              <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 dark:from-slate-200 dark:via-slate-300 dark:to-slate-400 bg-clip-text text-transparent">
+                Your Translated Video
+              </h1>
+              <p className="text-slate-600 dark:text-slate-300 font-light">
+                Watch the original video with synchronized translated audio
+              </p>
+            </div>
+
+            {/* Embed YouTube video */}
+            <div className="w-full rounded-2xl overflow-hidden shadow-2xl bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
+              <iframe
+                ref={iframeRef}
+                width="100%"
+                height="360"
+                src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1&mute=1`}
+                title="YouTube video player"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="w-full h-64 md:h-96"
+              ></iframe>
+            </div>
+            
+            {/* Sync Toggle */}
+            {dubbedAudioUrl && (
+              <div className="flex items-center justify-center py-4">
+                <button
+                  onClick={() => setIsSyncEnabled(!isSyncEnabled)}
+                  className={`flex items-center space-x-3 px-6 py-3 rounded-2xl transition-all duration-300 ${
+                    isSyncEnabled
+                      ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-500/50'
+                      : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                  }`}
+                  disabled={!isPlayerReady || !isAudioReady}
+                >
+                  {isSyncEnabled ? (
+                    <>
+                      <Link className="w-5 h-5" />
+                      <span className="font-medium">
+                        Sync Enabled {(!isPlayerReady || !isAudioReady) && '(Loading...)'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Link2Off className="w-5 h-5" />
+                      <span className="font-medium">Sync Disabled</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+            
+            {/* Dubbed audio player */}
+            {dubbedAudioUrl ? (
+              <div className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 dark:border-slate-700 shadow-lg">
+                <h3 className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-4">Translated Audio</h3>
+                <audio
+                  ref={audioRef}
+                  controls
+                  className="w-full"
+                  src={dubbedAudioUrl}
+                />
+              </div>
+            ) : (
+              <div className="flex items-center justify-center p-8 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center space-x-3 text-slate-600 dark:text-slate-300">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  <span className="font-light">Generating dubbed audio...</span>
+                </div>
+              </div>
+            )}
           </div>
-          
-          {/* Sync Toggle */}
-          {dubbedAudioUrl && (
-            <div className="flex items-center justify-center py-4">
-              <button
-                onClick={() => setIsSyncEnabled(!isSyncEnabled)}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-full transition-all duration-300 ${
-                  isSyncEnabled
-                    ? 'bg-green-500 text-white shadow-lg shadow-green-500/50'
-                    : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
-                }`}
-                disabled={!isPlayerReady || !isAudioReady}
-              >
-                {isSyncEnabled ? (
-                  <>
-                    <Link className="w-4 h-4" />
-                    <span className="text-sm font-medium">
-                      Sync Enabled {(!isPlayerReady || !isAudioReady) && '(Loading...)'}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Link2Off className="w-4 h-4" />
-                    <span className="text-sm font-medium">Sync Disabled</span>
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-          
-          {/* Dubbed audio player */}
-          {dubbedAudioUrl ? (
-            <audio
-              ref={audioRef}
-              controls
-              className="w-full border-t-2 border-blue-400 mt-4"
-              src={dubbedAudioUrl}
-            />
-          ) : (
-            <div className="flex items-center justify-center p-4">
-              <Loader2 className="w-6 h-6 animate-spin" />
-              <span className="ml-2">Generating dubbed audio...</span>
-            </div>
-          )}
         </div>
       </div>
     </div>

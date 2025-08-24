@@ -1,4 +1,5 @@
 import React from 'react';
+import { Check, Star, Zap, Globe, Headphones } from 'lucide-react';
 
 const plans = [
   {
@@ -14,6 +15,7 @@ const plans = [
     ],
     button: 'Get Started',
     highlight: false,
+    icon: Globe,
   },
   {
     name: 'Monthly',
@@ -24,9 +26,11 @@ const plans = [
       'Unlimited duration',
       'No ads',
       'Priority support',
+      'Premium voice quality',
     ],
     button: 'Subscribe',
     highlight: true,
+    icon: Star,
   },
   {
     name: '3 Months',
@@ -37,9 +41,11 @@ const plans = [
       'Unlimited duration',
       'No ads',
       'Priority support',
+      'Premium voice quality',
     ],
     button: 'Buy 3 Months',
     highlight: false,
+    icon: Zap,
   },
   {
     name: '12 Months',
@@ -50,9 +56,11 @@ const plans = [
       'Unlimited duration',
       'No ads',
       'Priority support',
+      'Premium voice quality',
     ],
     button: 'Buy 12 Months',
     highlight: false,
+    icon: Headphones,
   },
 ];
 
@@ -85,76 +93,127 @@ const faqs = [
 
 export default function PricingPage() {
   return (
-    <main className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-4">
-      <div className="max-w-4xl mx-auto py-8">
-        <h1 className="text-4xl font-bold text-center mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Pricing</h1>
-        <p className="text-center text-gray-600 dark:text-gray-300 mb-8">Choose the plan that fits your needs. Upgrade anytime.</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 relative overflow-hidden">
+      {/* Floating background blobs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-r from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+        <div className="absolute top-40 right-10 w-72 h-72 bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+      </div>
+
+      <div className="relative z-10 max-w-6xl mx-auto p-4 py-12">
+        {/* Header */}
+        <div className="text-center space-y-6 mb-16">
+          <h1 className="text-5xl md:text-7xl font-bold bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 dark:from-slate-200 dark:via-slate-300 dark:to-slate-400 bg-clip-text text-transparent animate-gradient">
+            Pricing
+          </h1>
+          <p className="text-2xl md:text-3xl font-light text-slate-600 dark:text-slate-300 max-w-3xl mx-auto">
+            Choose the plan that fits your needs. Upgrade anytime.
+          </p>
+        </div>
 
         {/* Comparison Table */}
-        <div className="overflow-x-auto mb-12">
-          <table className="min-w-full border rounded-lg overflow-hidden bg-white dark:bg-gray-900">
-            <thead>
-              <tr>
-                <th className="px-4 py-2 text-left">Feature</th>
-                <th className="px-4 py-2 text-center">Free</th>
-                <th className="px-4 py-2 text-center">Paid</th>
-              </tr>
-            </thead>
-            <tbody>
-              {features.map((f) => (
-                <tr key={f.label} className="border-t">
-                  <td className="px-4 py-2 font-medium">{f.label}</td>
-                  <td className="px-4 py-2 text-center">{f.free}</td>
-                  <td className="px-4 py-2 text-center">{f.paid}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mb-16">
+          <div className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm rounded-3xl p-8 border border-slate-200 dark:border-slate-700 shadow-xl">
+            <h2 className="text-2xl font-bold text-slate-700 dark:text-slate-200 mb-6 text-center">Feature Comparison</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-600">
+                    <th className="px-6 py-4 text-left text-lg font-medium text-slate-700 dark:text-slate-200">Feature</th>
+                    <th className="px-6 py-4 text-center text-lg font-medium text-slate-700 dark:text-slate-200">Free</th>
+                    <th className="px-6 py-4 text-center text-lg font-medium text-slate-700 dark:text-slate-200">Paid</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-600">
+                  {features.map((f) => (
+                    <tr key={f.label} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors duration-300">
+                      <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-200">{f.label}</td>
+                      <td className="px-6 py-4 text-center text-slate-600 dark:text-slate-300">{f.free}</td>
+                      <td className="px-6 py-4 text-center text-slate-600 dark:text-slate-300">{f.paid}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          {plans.map((plan) => (
-            <div
-              key={plan.name}
-              className={`flex flex-col rounded-xl shadow-lg p-6 bg-white dark:bg-gray-900 border-2 ${plan.highlight ? 'border-blue-600 scale-105' : 'border-gray-200 dark:border-gray-700'} transition-transform`}
-            >
-              <h2 className="text-2xl font-bold mb-2 text-center">{plan.name}</h2>
-              <div className="text-center mb-4">
-                <span className="text-4xl font-extrabold">{plan.price === '0' ? 'Free' : `$${plan.price}`}</span>
-                {plan.price !== '0' && <span className="text-base text-gray-500"> / {plan.period}</span>}
-              </div>
-              <ul className="flex-1 space-y-2 mb-6">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-center gap-2">
-                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
-              <button
-                className={`w-full py-2 rounded-lg font-semibold transition-colors duration-200 ${plan.highlight ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600'}`}
-                disabled={plan.price === '0'}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16">
+          {plans.map((plan) => {
+            const IconComponent = plan.icon;
+            return (
+              <div
+                key={plan.name}
+                className={`relative flex flex-col rounded-3xl shadow-xl p-8 transition-all duration-500 transform hover:scale-105 ${
+                  plan.highlight 
+                    ? 'bg-gradient-to-br from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white border-2 border-slate-600 dark:border-slate-500' 
+                    : 'bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                }`}
               >
-                {plan.button}
-              </button>
-            </div>
-          ))}
+                {plan.highlight && (
+                  <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
+                    <span className="bg-green-500 text-white px-4 py-1 rounded-full text-sm font-medium">Most Popular</span>
+                  </div>
+                )}
+                
+                <div className="text-center mb-6">
+                  <div className="flex justify-center mb-4">
+                    <div className={`p-3 rounded-2xl ${plan.highlight ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-700'}`}>
+                      <IconComponent className={`w-8 h-8 ${plan.highlight ? 'text-white' : 'text-slate-600 dark:text-slate-300'}`} />
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
+                  <div className="mb-4">
+                    <span className="text-4xl font-extrabold">{plan.price === '0' ? 'Free' : `$${plan.price}`}</span>
+                    {plan.price !== '0' && <span className="text-lg opacity-80"> / {plan.period}</span>}
+                  </div>
+                </div>
+                
+                <ul className="flex-1 space-y-3 mb-8">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-center gap-3">
+                      <Check className={`w-5 h-5 flex-shrink-0 ${plan.highlight ? 'text-green-400' : 'text-green-500'}`} />
+                      <span className="text-sm">{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+                
+                <button
+                  className={`w-full py-4 rounded-2xl font-semibold transition-all duration-300 transform hover:scale-105 ${
+                    plan.highlight 
+                      ? 'bg-white text-slate-700 hover:bg-slate-50 shadow-lg hover:shadow-xl' 
+                      : plan.price === '0'
+                      ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white hover:from-slate-800 hover:to-slate-700 dark:hover:from-slate-500 dark:hover:to-slate-400 shadow-lg hover:shadow-xl'
+                  }`}
+                  disabled={plan.price === '0'}
+                >
+                  {plan.button}
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {/* FAQ Section */}
-        <div className="max-w-2xl mx-auto mt-12">
-          <h3 className="text-2xl font-bold mb-4 text-center">Frequently Asked Questions</h3>
-          <div className="space-y-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 dark:from-slate-200 dark:via-slate-300 dark:to-slate-400 bg-clip-text text-transparent">
+              Frequently Asked Questions
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {faqs.map((faq, idx) => (
-              <div key={idx} className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
-                <div className="font-semibold mb-1">{faq.q}</div>
-                <div className="text-gray-700 dark:text-gray-300">{faq.a}</div>
+              <div key={idx} className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 dark:border-slate-700 shadow-lg hover:shadow-xl transition-all duration-300">
+                <h3 className="font-semibold text-lg mb-3 text-slate-700 dark:text-slate-200">{faq.q}</h3>
+                <p className="text-slate-600 dark:text-slate-300 leading-relaxed">{faq.a}</p>
               </div>
             ))}
           </div>
         </div>
       </div>
-    </main>
+    </div>
   );
 } 
