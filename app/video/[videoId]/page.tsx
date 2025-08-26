@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
-import { Loader2, CheckCircle, Circle, Home, AlertCircle, Link, Link2Off } from 'lucide-react';
+import { Loader2, CheckCircle, Circle, Home, AlertCircle, Link, Link2Off, Lightbulb } from 'lucide-react';
 
 interface TranscriptionSegment {
   start: number;
@@ -592,6 +592,43 @@ export default function VideoPage() {
 
   // Error Component
   const ErrorDisplay = () => {
+    // Determine specific error message based on error type
+    const getErrorMessage = () => {
+      if (error?.includes('format is not available')) {
+        return {
+          title: 'Video Format Not Available',
+          message: 'This video may have restrictions or be unavailable in the required format. Please try a different video.',
+          suggestion: 'Try a shorter video or one that\'s publicly available'
+        };
+      } else if (error?.includes('403') || error?.includes('Forbidden')) {
+        return {
+          title: 'Access Denied',
+          message: 'YouTube is blocking access to this video. This might be due to geo-restrictions or age restrictions.',
+          suggestion: 'Try a different video that\'s publicly accessible'
+        };
+      } else if (error?.includes('fragment') || error?.includes('not found')) {
+        return {
+          title: 'Video Download Failed',
+          message: 'Unable to download video segments. This could be due to network issues or video availability.',
+          suggestion: 'Check your internet connection and try again'
+        };
+      } else if (error?.includes('Failed to extract audio')) {
+        return {
+          title: 'Audio Extraction Failed',
+          message: 'Could not extract audio from the video. The video might be corrupted or in an unsupported format.',
+          suggestion: 'Try a different video with clear audio'
+        };
+      } else {
+        return {
+          title: 'Processing Error',
+          message: 'An unexpected error occurred while processing your video.',
+          suggestion: 'Please try again with a different video'
+        };
+      }
+    };
+
+    const errorInfo = getErrorMessage();
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex flex-col items-center justify-center p-8 relative overflow-hidden">
         {/* Floating background blobs */}
@@ -601,7 +638,7 @@ export default function VideoPage() {
           <div className="absolute -bottom-8 left-20 w-72 h-72 bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
         </div>
 
-        <div className="relative z-10 w-full max-w-md space-y-8 text-center">
+        <div className="relative z-10 w-full max-w-lg space-y-8 text-center">
           {/* Error Icon */}
           <div className="flex justify-center">
             <AlertCircle className="w-20 h-20 text-red-500" />
@@ -610,10 +647,21 @@ export default function VideoPage() {
           {/* Error Message */}
           <div className="space-y-4">
             <h2 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-700 to-slate-500 dark:from-slate-300 dark:to-slate-400 bg-clip-text text-transparent">
-              Oops! An error occurred
+              {errorInfo.title}
             </h2>
             <p className="text-slate-600 dark:text-slate-300 font-light text-lg">
-              Please try again later
+              {errorInfo.message}
+            </p>
+          </div>
+          
+          {/* Suggestion */}
+          <div className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center space-x-3 mb-3">
+              <Lightbulb className="w-5 h-5 text-yellow-500" />
+              <span className="font-medium text-slate-700 dark:text-slate-200">Suggestion</span>
+            </div>
+            <p className="text-slate-600 dark:text-slate-300 font-light">
+              {errorInfo.suggestion}
             </p>
           </div>
           
