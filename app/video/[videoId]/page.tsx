@@ -35,7 +35,6 @@ export default function VideoPage() {
   const [isSyncEnabled, setIsSyncEnabled] = useState(true); // Default to enabled
   const [isPlayerReady, setIsPlayerReady] = useState(false); // Track player readiness
   const [isAudioReady, setIsAudioReady] = useState(false); // Track audio readiness
-  const [showSkeletons, setShowSkeletons] = useState(false); // Track skeleton visibility
   
   // Progress tracking
   const [progressSteps, setProgressSteps] = useState<ProgressStep[]>([
@@ -141,15 +140,15 @@ export default function VideoPage() {
     const initializePlayer = () => {
       if (!videoId || typeof videoId !== 'string') return;
       
-      // Reset player ready state
-      setIsPlayerReady(false);
-      
       // Use the existing iframe directly
       if (!iframeRef.current) {
         console.log('Iframe not found, waiting...');
         setTimeout(initializePlayer, 100);
         return;
       }
+      
+      // Set player as ready immediately since iframe exists
+      setIsPlayerReady(true);
       
       console.log('Initializing YouTube player...');
       
@@ -192,112 +191,76 @@ export default function VideoPage() {
         playerRef.current.destroy();
       }
     };
-  }, [videoId, isSyncEnabled]);
+  }, [videoId]);
 
-  // Sync audio and video with toggle support
+  // Simple sync effect - only depends on sync toggle
   useEffect(() => {
-    if (!audioRef.current || !playerRef.current || !isSyncEnabled || !isPlayerReady || !isAudioReady) {
-      console.log('Sync not ready:', {
-        audio: !!audioRef.current,
-        player: !!playerRef.current,
-        syncEnabled: isSyncEnabled,
-        playerReady: isPlayerReady,
-        audioReady: isAudioReady
-      });
+    console.log('Sync toggle changed:', isSyncEnabled);
+    
+    if (!isSyncEnabled) {
+      console.log('Sync disabled');
       return;
     }
     
-    console.log('Starting sync setup...');
+    console.log('Sync enabled - setting up listeners');
     
+    // Simple sync logic that doesn't interfere with player
     const audio = audioRef.current;
     const player = playerRef.current;
     
-    // Audio event listeners
-    const onAudioPlay = () => {
-      console.log('Audio play event');
-      if (isSyncEnabled && player.getPlayerState() !== 1) {
-        console.log('Syncing video to play');
-        player.playVideo();
-      }
-    };
+    if (!audio || !player) {
+      console.log('Audio or player not ready for sync');
+      return;
+    }
     
-    const onAudioPause = () => {
-      console.log('Audio pause event');
-      if (isSyncEnabled && player.getPlayerState() !== 2) {
-        console.log('Syncing video to pause');
-        player.pauseVideo();
-      }
-    };
-    
-    const onAudioSeeked = () => {
-      console.log('Audio seek event');
-      if (isSyncEnabled) {
-        const timeDiff = Math.abs(audio.currentTime - player.getCurrentTime());
-        if (timeDiff > 0.5) {
-          console.log('Syncing video seek to:', audio.currentTime);
-          player.seekTo(audio.currentTime, true);
-        }
-      }
-    };
-    
-    // Add event listeners
-    audio.addEventListener('play', onAudioPlay);
-    audio.addEventListener('pause', onAudioPause);
-    audio.addEventListener('seeked', onAudioSeeked);
-    
-    // Periodic sync check for seeking
     const syncInterval = setInterval(() => {
       if (isSyncEnabled && audio && player) {
         const timeDiff = Math.abs(audio.currentTime - player.getCurrentTime());
-        if (timeDiff > 0.5) {
-          // If video was seeked, sync audio
-          if (Math.abs(audio.currentTime - player.getCurrentTime()) > 1) {
-            console.log('Syncing audio to video time:', player.getCurrentTime());
-            audio.currentTime = player.getCurrentTime();
-          }
+        if (timeDiff > 1) {
+          console.log('Syncing audio to video:', audio.currentTime, '->', player.getCurrentTime());
+          audio.currentTime = player.getCurrentTime();
         }
       }
-    }, 1000);
-    
-    console.log('Sync setup complete');
+    }, 2000);
     
     return () => {
-      console.log('Cleaning up sync listeners');
-      audio.removeEventListener('play', onAudioPlay);
-      audio.removeEventListener('pause', onAudioPause);
-      audio.removeEventListener('seeked', onAudioSeeked);
+      console.log('Cleaning up sync interval');
       clearInterval(syncInterval);
     };
-  }, [dubbedAudioUrl, isSyncEnabled, isPlayerReady, isAudioReady]);
+  }, [isSyncEnabled]);
 
-  // Track audio readiness
-  useEffect(() => {
-    console.log('Audio readiness effect:', { 
-      hasAudio: !!audioRef.current, 
-      hasUrl: !!dubbedAudioUrl,
-      readyState: audioRef.current?.readyState 
-    });
-    
-    if (!audioRef.current || !dubbedAudioUrl) {
-      console.log('Audio not ready - missing ref or URL');
-      setIsAudioReady(false);
-      return;
-    }
+      // Track audio readiness
+    useEffect(() => {
+      console.log('Audio readiness effect:', { 
+        hasAudio: !!audioRef.current, 
+        hasUrl: !!dubbedAudioUrl,
+        readyState: audioRef.current?.readyState 
+      });
+      
+      if (!audioRef.current || !dubbedAudioUrl) {
+        console.log('Audio not ready - missing ref or URL');
+        setIsAudioReady(false);
+        return;
+      }
 
-    const audio = audioRef.current;
-    
-    const onCanPlay = () => {
-      console.log('Audio can play - ready for sync');
+      const audio = audioRef.current;
+      
+      // Set audio as ready immediately if it has a source
       setIsAudioReady(true);
-    };
-    
-    const onLoadedData = () => {
-      console.log('Audio loaded data');
-    };
-    
-    const onLoadStart = () => {
-      console.log('Audio load started');
-      setIsAudioReady(false);
+      
+      const onCanPlay = () => {
+        console.log('Audio can play - ready for sync');
+        setIsAudioReady(true);
+      };
+      
+      const onLoadedData = () => {
+        console.log('Audio loaded data');
+        setIsAudioReady(true);
+      };
+      
+      const onLoadStart = () => {
+        console.log('Audio load started');
+        setIsAudioReady(false);
     };
     
     const onLoadedMetadata = () => {
@@ -352,33 +315,7 @@ export default function VideoPage() {
   }, [dubbedAudioUrl, isPlayerReady, isAudioReady]);
 
   // Hide skeletons when sync is ready
-  useEffect(() => {
-    console.log('Skeleton hide check:', {
-      isPlayerReady,
-      isAudioReady,
-      showSkeletons,
-      dubbedAudioUrl: !!dubbedAudioUrl
-    });
-    
-    if (isPlayerReady && isAudioReady && showSkeletons) {
-      console.log('Hiding skeletons - sync is ready');
-      const timer = setTimeout(() => {
-        setShowSkeletons(false);
-      }, 500); // Small delay to ensure smooth transition
-      
-      return () => clearTimeout(timer);
-    }
-    
-    // Fallback: hide skeletons after 5 seconds if they're still showing
-    if (showSkeletons && dubbedAudioUrl) {
-      const fallbackTimer = setTimeout(() => {
-        console.log('Fallback: hiding skeletons after timeout');
-        setShowSkeletons(false);
-      }, 5000);
-      
-      return () => clearTimeout(fallbackTimer);
-    }
-  }, [isPlayerReady, isAudioReady, showSkeletons, dubbedAudioUrl]);
+
 
   useEffect(() => {
     const processVideo = async () => {
@@ -500,9 +437,6 @@ export default function VideoPage() {
         
         // Reset audio ready state when new audio is set
         setIsAudioReady(false);
-        
-        // Show skeletons after processing is complete
-        setShowSkeletons(true);
 
       } catch (err) {
         console.error('Error in processing:', err);
@@ -695,55 +629,17 @@ export default function VideoPage() {
     return <ErrorDisplay />;
   }
 
-  // Skeleton Loading Component
-  const SkeletonLoader = () => {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 relative overflow-hidden">
-        {/* Floating background blobs */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-r from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-          <div className="absolute top-40 right-10 w-72 h-72 bg-gradient-to-r from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-          <div className="absolute -bottom-8 left-20 w-72 h-72 bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-        </div>
 
-        <div className="relative z-10 container mx-auto px-4 py-8">
-          <div className="max-w-2xl mx-auto">
-            <div className="space-y-8">
-              {/* Video skeleton */}
-              <div className="w-full h-64 md:h-96 rounded-2xl overflow-hidden shadow-lg bg-slate-200 dark:bg-slate-700 animate-pulse relative">
-                <div className="absolute inset-0 animate-shimmer"></div>
-              </div>
-              
-              {/* Sync toggle skeleton */}
-              <div className="flex items-center justify-center py-4">
-                <div className="w-32 h-10 bg-slate-200 dark:bg-slate-700 rounded-full animate-pulse relative">
-                  <div className="absolute inset-0 animate-shimmer"></div>
-                </div>
-              </div>
-              
-              {/* Audio player skeleton */}
-              <div className="w-full h-16 bg-slate-200 dark:bg-slate-700 rounded-2xl animate-pulse relative">
-                <div className="absolute inset-0 animate-shimmer"></div>
-              </div>
-              
-              {/* Loading message */}
-              <div className="text-center">
-                <div className="inline-flex items-center space-x-3 text-slate-600 dark:text-slate-300">
-                  <div className="w-5 h-5 border-2 border-slate-600 dark:border-slate-300 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="font-light">Loading...</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
-  // Show skeletons while sync is being prepared
-  if (showSkeletons) {
-    return <SkeletonLoader />;
-  }
+
+
+  console.log('Rendering video page:', { 
+    videoId, 
+    isSyncEnabled, 
+    hasAudio: !!audioRef.current, 
+    hasPlayer: !!playerRef.current,
+    hasDubbedAudio: !!dubbedAudioUrl 
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 relative overflow-hidden">
@@ -757,15 +653,7 @@ export default function VideoPage() {
       <div className="relative z-10 container mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto">
           <div className="space-y-8">
-            {/* Header */}
-            <div className="text-center space-y-4">
-              <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 dark:from-slate-200 dark:via-slate-300 dark:to-slate-400 bg-clip-text text-transparent">
-                Your Translated Video
-              </h1>
-              <p className="text-slate-600 dark:text-slate-300 font-light">
-                Watch the original video with synchronized translated audio
-              </p>
-            </div>
+
 
             {/* Embed YouTube video */}
             <div className="w-full rounded-2xl overflow-hidden shadow-2xl bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
@@ -779,42 +667,38 @@ export default function VideoPage() {
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
                 className="w-full h-64 md:h-96"
+                onLoad={() => console.log('YouTube iframe loaded')}
               ></iframe>
             </div>
-            
-            {/* Sync Toggle */}
-            {dubbedAudioUrl && (
-              <div className="flex items-center justify-center py-4">
-                <button
-                  onClick={() => setIsSyncEnabled(!isSyncEnabled)}
-                  className={`flex items-center space-x-3 px-6 py-3 rounded-2xl transition-all duration-300 ${
-                    isSyncEnabled
-                      ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-500/50'
-                      : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-                  }`}
-                  disabled={!isPlayerReady || !isAudioReady}
-                >
-                  {isSyncEnabled ? (
-                    <>
-                      <Link className="w-5 h-5" />
-                      <span className="font-medium">
-                        Sync Enabled {(!isPlayerReady || !isAudioReady) && '(Loading...)'}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <Link2Off className="w-5 h-5" />
-                      <span className="font-medium">Sync Disabled</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
             
             {/* Dubbed audio player */}
             {dubbedAudioUrl ? (
               <div className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 dark:border-slate-700 shadow-lg">
-                <h3 className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-4">Translated Audio</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium text-slate-700 dark:text-slate-200">Translated Audio</h3>
+                  
+                  {/* iOS Style Sync Toggle */}
+                  <div className="flex items-center space-x-3">
+                    <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Sync</span>
+                    <button
+                      onClick={() => {
+                        console.log('Toggle clicked, current state:', isSyncEnabled);
+                        setIsSyncEnabled(!isSyncEnabled);
+                      }}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 cursor-pointer ${
+                        isSyncEnabled
+                          ? 'bg-gradient-to-r from-green-500 to-green-600 shadow-lg shadow-green-500/50'
+                          : 'bg-slate-300 hover:bg-slate-400'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-all duration-300 ${
+                          isSyncEnabled ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
                 <audio
                   ref={audioRef}
                   controls

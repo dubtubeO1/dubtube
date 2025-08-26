@@ -1,4 +1,4 @@
-file '/Users/yusufyigitaydemir/Desktop/dubtube/public/audio/tts/SPEAKER_00_seg0_7d46296c-97e0-4b02-9e5f-34619ae010c4_adjusted.mp3'
-file '/Users/yusufyigitaydemir/Desktop/dubtube/public/audio/tts/SPEAKER_00_seg1_1429a91e-bd90-4cd1-ac5d-9a1dfc67e99b_adjusted.mp3'
-file '/Users/yusufyigitaydemir/Desktop/dubtube/public/audio/tts/SPEAKER_00_seg2_119573ef-670d-472a-a662-e6203f602b41_adjusted.mp3'
-file '/Users/yusufyigitaydemir/Desktop/dubtube/public/audio/tts/SPEAKER_00_seg3_9fb594f7-67bf-4d98-9220-eb90de179fed_adjusted.mp3'
+file '/Users/yusufyigitaydemir/Desktop/dubtube/public/audio/tts/SPEAKER_00_seg0_ebfd02f6-fcc7-4f8c-acdb-d7963657656d_adjusted.mp3'
+file '/Users/yusufyigitaydemir/Desktop/dubtube/public/audio/tts/SPEAKER_00_seg1_e9d8b507-f327-4d00-bc8d-85856824a5e6_adjusted.mp3'
+file '/Users/yusufyigitaydemir/Desktop/dubtube/public/audio/tts/SPEAKER_00_seg2_c93ed658-1b71-41f8-9f18-dde87bc81af8_adjusted.mp3'
+file '/Users/yusufyigitaydemir/Desktop/dubtube/public/audio/tts/SPEAKER_00_seg3_7f8cd538-3704-4b7f-8370-559ee19c2cfe_adjusted.mp3'
