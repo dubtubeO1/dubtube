@@ -4,7 +4,7 @@ import { mkdir } from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
-export async function POST(request: Request) {
+export async function POST(request: Request): Promise<NextResponse> {
   try {
     const { videoId } = await request.json();
     
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     const ffmpegDir = '/opt/homebrew/bin';
     console.log('Using ffmpeg directory:', ffmpegDir);
 
-    return new Promise((resolve, reject) => {
+    return new Promise<NextResponse>((resolve, reject) => {
       const ytDlp = spawn('yt-dlp', [
         youtubeUrl,
         '-x', // Extract audio
@@ -78,7 +78,9 @@ export async function POST(request: Request) {
         } else {
           // Try alternative approach with different format
           console.log('First attempt failed, trying alternative format...');
-          resolve(tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir));
+          tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir)
+            .then(resolve)
+            .catch(reject);
         }
       });
 
@@ -101,7 +103,7 @@ export async function POST(request: Request) {
 
 // Alternative format extraction function
 async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmpegDir: string): Promise<NextResponse> {
-  return new Promise((resolve, reject) => {
+  return new Promise<NextResponse>((resolve, reject) => {
     const ytDlp = spawn('yt-dlp', [
       youtubeUrl,
       '-x', // Extract audio
