@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { extractYouTubeId, isValidYouTubeUrl } from './utils/youtube';
-import { Globe, Play, Sparkles, Zap, CheckCircle } from 'lucide-react';
+import { Globe, Play, Sparkles, Zap, CheckCircle, AlertCircle } from 'lucide-react';
 
 export default function Home() {
   const router = useRouter();
@@ -13,6 +13,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [typedText, setTypedText] = useState('');
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const turnstileRef = useRef<any>(null);
 
   const fullText = "DubTube";
   const subtitleText = "Translate YouTube videos with perfect audio sync";
@@ -28,10 +32,61 @@ export default function Home() {
     }
   }, [currentIndex, fullText]);
 
+  // Load Turnstile script and set up global callbacks
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+
+    // Set up global callback functions
+    (window as any).onTurnstileSuccess = onTurnstileSuccess;
+    (window as any).onTurnstileError = onTurnstileError;
+    (window as any).onTurnstileExpired = onTurnstileExpired;
+
+    return () => {
+      // Cleanup script and global callbacks on unmount
+      const existingScript = document.querySelector('script[src="https://challenges.cloudflare.com/turnstile/v0/api.js"]');
+      if (existingScript) {
+        document.head.removeChild(existingScript);
+      }
+      delete (window as any).onTurnstileSuccess;
+      delete (window as any).onTurnstileError;
+      delete (window as any).onTurnstileExpired;
+    };
+  }, []);
+
+  // Turnstile callback functions
+  const onTurnstileSuccess = (token: string) => {
+    setTurnstileToken(token);
+    setVerificationError(null);
+  };
+
+  const onTurnstileError = () => {
+    setTurnstileToken(null);
+    setVerificationError('Verification failed. Please try again.');
+  };
+
+  const onTurnstileExpired = () => {
+    setTurnstileToken(null);
+    setVerificationError('Verification expired. Please try again.');
+  };
+
+  const resetTurnstile = () => {
+    if (turnstileRef.current) {
+      turnstileRef.current.reset();
+    }
+    setTurnstileToken(null);
+    setVerificationError(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setVerificationError(null);
 
+    // Validate YouTube URL
     if (!isValidYouTubeUrl(url)) {
       setError('Please enter a valid YouTube URL');
       return;
@@ -43,14 +98,45 @@ export default function Home() {
       return;
     }
 
+    // Check if Turnstile token exists
+    if (!turnstileToken) {
+      setVerificationError('Please complete the verification');
+      return;
+    }
+
     setIsLoading(true);
+    setIsVerifying(true);
+
     try {
+      // Verify Turnstile token with server
+      const response = await fetch('/api/verify-turnstile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: turnstileToken,
+          remoteip: null, // Let server determine IP
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        setVerificationError(result.error || 'Verification failed. Please try again.');
+        resetTurnstile();
+        return;
+      }
+
+      // Verification successful, proceed to video page
       router.push(`/video/${videoId}?lang=${language}`);
     } catch (err) {
-      setError('Failed to process video');
+      setError('Failed to process video. Please try again.');
       console.error(err);
+      resetTurnstile();
     } finally {
       setIsLoading(false);
+      setIsVerifying(false);
     }
   };
 
@@ -136,11 +222,33 @@ export default function Home() {
                 </select>
               </div>
 
+              {/* Turnstile Widget */}
+              <div className="space-y-3">
+                <div className="flex justify-center">
+                  <div
+                    ref={turnstileRef}
+                    className="cf-turnstile"
+                    data-sitekey={process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY}
+                    data-callback="onTurnstileSuccess"
+                    data-error-callback="onTurnstileError"
+                    data-expired-callback="onTurnstileExpired"
+                    data-theme="light"
+                    data-size="normal"
+                  />
+                </div>
+                {verificationError && (
+                  <div className="flex items-center space-x-2 text-red-500 text-sm">
+                    <AlertCircle className="w-4 h-4" />
+                    <span>{verificationError}</span>
+                  </div>
+                )}
+              </div>
+
               {/* Submit Button */}
               <button
                 disabled={true}
                 type="submit"
-                // disabled={isLoading}
+                //disabled={isLoading || !turnstileToken}
                 className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 
                          text-white font-medium hover:from-slate-800 hover:to-slate-700
                          focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
@@ -151,7 +259,12 @@ export default function Home() {
                 {isLoading ? (
                   <span className="flex items-center justify-center space-x-3">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Processing...</span>
+                    <span>{isVerifying ? 'Verifying...' : 'Processing...'}</span>
+                  </span>
+                ) : !turnstileToken ? (
+                  <span className="flex items-center justify-center space-x-3">
+                    <AlertCircle className="w-5 h-5" />
+                    <span>Complete Verification</span>
                   </span>
                 ) : (
                   <span className="flex items-center justify-center space-x-3">
