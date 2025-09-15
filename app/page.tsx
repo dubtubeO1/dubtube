@@ -275,19 +275,21 @@ export default function Home() {
               </button>
             </form>
 
-            {/* Usage info */}
-            <div className="space-y-4 mt-6">
-              <div className="flex items-center justify-center space-x-4 text-sm text-slate-500">
-                <div className="flex items-center space-x-2">
-                  <CheckCircle className="w-4 h-4 text-green-500" />
-                  <span>Free tier: 1 video/day (max 5 min)</span>
-                </div>
-                <div className="w-px h-4 bg-slate-300"></div>
-                <div className="flex items-center space-x-2">
-                  <CheckCircle className="w-4 h-4 text-green-500" />
-                  <span>Sign up for unlimited access</span>
-                </div>
-              </div>
+            {/* Call to action */}
+            <div className="mt-6">
+              <button
+                onClick={() => router.push('/pricing#pricing-cards')}
+                className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-600 to-slate-500 
+                         text-white font-medium hover:from-slate-700 hover:to-slate-600
+                         focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
+                         transition-all duration-300 transform hover:scale-105
+                         shadow-lg hover:shadow-xl"
+              >
+                <span className="flex items-center justify-center space-x-3">
+                  <Sparkles className="w-5 h-5" />
+                  <span>View Pricing Plans</span>
+                </span>
+              </button>
             </div>
           </div>
 

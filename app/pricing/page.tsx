@@ -13,13 +13,15 @@ const plans = [
       'Ads before playback',
       'Basic support',
     ],
-    button: 'Get Started',
+    button: 'Coming Soon',
     highlight: false,
     icon: Globe,
+    disabled: true,
+    comingSoon: true,
   },
   {
     name: 'Monthly',
-    price: '29.99',
+    price: '14.99',
     period: 'month',
     features: [
       'Unlimited videos',
@@ -29,12 +31,12 @@ const plans = [
       'Premium voice quality',
     ],
     button: 'Subscribe',
-    highlight: true,
+    highlight: false,
     icon: Star,
   },
   {
     name: '3 Months',
-    price: '74.99',
+    price: '39.99',
     period: '3 months',
     features: [
       'Unlimited videos',
@@ -44,12 +46,12 @@ const plans = [
       'Premium voice quality',
     ],
     button: 'Buy 3 Months',
-    highlight: false,
+    highlight: true,
     icon: Zap,
   },
   {
     name: '12 Months',
-    price: '299.99',
+    price: '119.99',
     period: '12 months',
     features: [
       'Unlimited videos',
@@ -139,6 +141,9 @@ export default function PricingPage() {
           </div>
         </div>
 
+        {/* Pricing Cards Section Anchor */}
+        <div id="pricing-cards" className="scroll-mt-24"></div>
+        
         {/* Pricing Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16">
           {plans.map((plan) => {
@@ -146,7 +151,11 @@ export default function PricingPage() {
             return (
               <div
                 key={plan.name}
-                className={`relative flex flex-col rounded-3xl shadow-xl p-8 transition-all duration-500 transform hover:scale-105 ${
+                className={`relative flex flex-col rounded-3xl shadow-xl p-8 transition-all duration-500 transform ${
+                  plan.disabled 
+                    ? 'opacity-60 cursor-not-allowed' 
+                    : 'hover:scale-105'
+                } ${
                   plan.highlight 
                     ? 'bg-gradient-to-br from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white border-2 border-slate-600 dark:border-slate-500' 
                     : 'bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
@@ -155,6 +164,11 @@ export default function PricingPage() {
                 {plan.highlight && (
                   <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
                     <span className="bg-green-500 text-white px-4 py-1 rounded-full text-sm font-medium">Most Popular</span>
+                  </div>
+                )}
+                {plan.comingSoon && (
+                  <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
+                    <span className="bg-orange-500 text-white px-4 py-1 rounded-full text-sm font-medium">Coming Soon</span>
                   </div>
                 )}
                 
@@ -181,14 +195,14 @@ export default function PricingPage() {
                 </ul>
                 
                 <button
-                  className={`w-full py-4 rounded-2xl font-semibold transition-all duration-300 transform hover:scale-105 ${
-                    plan.highlight 
-                      ? 'bg-white text-slate-700 hover:bg-slate-50 shadow-lg hover:shadow-xl' 
-                      : plan.price === '0'
-                      ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white hover:from-slate-800 hover:to-slate-700 dark:hover:from-slate-500 dark:hover:to-slate-400 shadow-lg hover:shadow-xl'
+                  className={`w-full py-4 rounded-2xl font-semibold transition-all duration-300 ${
+                    plan.disabled
+                      ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-not-allowed opacity-60'
+                      : plan.highlight 
+                      ? 'bg-white text-slate-700 hover:bg-slate-50 shadow-lg hover:shadow-xl transform hover:scale-105' 
+                      : 'bg-gradient-to-r from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white hover:from-slate-800 hover:to-slate-700 dark:hover:from-slate-500 dark:hover:to-slate-400 shadow-lg hover:shadow-xl transform hover:scale-105'
                   }`}
-                  disabled={plan.price === '0'}
+                  disabled={plan.disabled}
                 >
                   {plan.button}
                 </button>
