@@ -9,3 +9,6 @@ restartPolicyType = "on_failure"
 
 [build.healthcheck]
 timeout = 300
+
+[build.nixpacks]
+configPath = "nixpacks.toml"
