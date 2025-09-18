@@ -35,9 +35,10 @@ export async function POST(request: Request) {
     const audioFile = await readFile(fullPath);
     console.log('Audio file size:', audioFile.length, 'bytes');
 
-    // Get audio duration using ffprobe
+    // Get audio duration using ffprobe - use system PATH in production
+    const ffprobePath = process.env.NODE_ENV === 'production' ? 'ffprobe' : '/opt/homebrew/bin/ffprobe';
     const { stdout: durationOutput } = await execAsync(
-      `/opt/homebrew/bin/ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${fullPath}"`
+      `${ffprobePath} -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${fullPath}"`
     );
     const duration = parseFloat(durationOutput.trim());
     console.log('Audio duration:', duration, 'seconds');
