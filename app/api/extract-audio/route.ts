@@ -28,18 +28,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
     console.log('YouTube URL:', youtubeUrl);
 
-    // Get the ffmpeg directory path
-    const ffmpegDir = '/opt/homebrew/bin';
-    console.log('Using ffmpeg directory:', ffmpegDir);
+    // Get the ffmpeg directory path - use system PATH in production
+    const ffmpegDir = process.env.NODE_ENV === 'production' ? '' : '/opt/homebrew/bin';
+    console.log('Using ffmpeg directory:', ffmpegDir || 'system PATH');
 
     return new Promise<NextResponse>((resolve, reject) => {
-      const ytDlp = spawn('yt-dlp', [
+      const args = [
         youtubeUrl,
         '-x', // Extract audio
         '--audio-format', 'mp3',
         '--audio-quality', '0',
         '-o', outputPath,
-        '--ffmpeg-location', ffmpegDir,
         '--no-playlist',
         '--no-warnings',
         '--quiet',
@@ -50,8 +49,22 @@ export async function POST(request: Request): Promise<NextResponse> {
         '--format', 'bestaudio[ext=m4a]/bestaudio/best', // Fallback format selection
         '--retries', '3', // Retry failed downloads
         '--fragment-retries', '3', // Retry failed fragments
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' // Use a common user agent
-      ]);
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', // Updated user agent
+        '--referer', 'https://www.youtube.com/', // Add referer header
+        '--add-header', 'Accept-Language:en-US,en;q=0.9', // Add language header
+        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8', // Add accept header
+        '--sleep-interval', '1', // Add delay between requests
+        '--max-sleep-interval', '3', // Random sleep between 1-3 seconds
+        '--sleep-requests', '1', // Sleep after each request
+        '--extractor-args', 'youtube:player_client=android,web' // Use mobile client to avoid bot detection
+      ];
+
+      // Only add ffmpeg-location if we have a specific path
+      if (ffmpegDir) {
+        args.splice(6, 0, '--ffmpeg-location', ffmpegDir);
+      }
+
+      const ytDlp = spawn('yt-dlp', args);
 
       let output = '';
       let errorOutput = '';
@@ -104,21 +117,34 @@ export async function POST(request: Request): Promise<NextResponse> {
 // Alternative format extraction function
 async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmpegDir: string): Promise<NextResponse> {
   return new Promise<NextResponse>((resolve, reject) => {
-    const ytDlp = spawn('yt-dlp', [
+    const args = [
       youtubeUrl,
       '-x', // Extract audio
       '--audio-format', 'mp3',
       '--audio-quality', '0',
       '-o', outputPath,
-      '--ffmpeg-location', ffmpegDir,
       '--no-playlist',
       '--no-warnings',
       '--quiet',
       '--format', 'worstaudio/worst', // Try worst quality as fallback
       '--retries', '5', // More retries
       '--fragment-retries', '5',
-      '--user-agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    ]);
+      '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1', // Use mobile Safari user agent
+      '--referer', 'https://www.youtube.com/',
+      '--add-header', 'Accept-Language:en-US,en;q=0.9',
+      '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      '--sleep-interval', '2', // Longer delay for fallback
+      '--max-sleep-interval', '5',
+      '--sleep-requests', '2',
+      '--extractor-args', 'youtube:player_client=ios,android' // Use mobile clients
+    ];
+
+    // Only add ffmpeg-location if we have a specific path
+    if (ffmpegDir) {
+      args.splice(6, 0, '--ffmpeg-location', ffmpegDir);
+    }
+
+    const ytDlp = spawn('yt-dlp', args);
 
     let output = '';
     let errorOutput = '';
