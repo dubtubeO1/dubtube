@@ -246,9 +246,9 @@ export default function Home() {
 
               {/* Submit Button */}
               <button
-                //disabled={true}
+                disabled={true}
                 type="submit"
-                disabled={isLoading || !turnstileToken}
+                //disabled={isLoading || !turnstileToken}
                 className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 
                          text-white font-medium hover:from-slate-800 hover:to-slate-700
                          focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
