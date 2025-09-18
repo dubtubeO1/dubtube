@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { Webhook } from 'svix'
 import { headers } from 'next/headers'
 import { WebhookEvent } from '@clerk/nextjs/server'
-import { syncUserToSupabase } from '@/lib/user-sync'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export async function POST(req: Request) {
   // Get the headers
@@ -49,19 +49,52 @@ export async function POST(req: Request) {
 
     console.log('User created:', { id, email_addresses, first_name, last_name })
 
-    // Sync user to Supabase
+    // Sync user to Supabase using admin client
     try {
-      const userData = {
-        id,
-        emailAddresses: email_addresses,
-        firstName: first_name,
-        lastName: last_name,
-      } as any
+      if (!supabaseAdmin) {
+        console.error('Supabase admin client not initialized')
+        return new Response('Server configuration error', { status: 500 })
+      }
 
-      await syncUserToSupabase(userData)
-      console.log('Successfully synced user to Supabase:', id)
+      const email = email_addresses[0]?.email_address
+      if (!email) {
+        console.error('No email found for user:', id)
+        return new Response('No email found', { status: 400 })
+      }
+
+      // Check if user already exists
+      const { data: existingUser } = await supabaseAdmin
+        .from('users')
+        .select('*')
+        .eq('clerk_user_id', id)
+        .single()
+
+      if (existingUser) {
+        console.log('User already exists in Supabase:', id)
+        return new Response('User already exists', { status: 200 })
+      }
+
+      // Create new user in Supabase
+      const { data: newUser, error } = await supabaseAdmin
+        .from('users')
+        .insert({
+          clerk_user_id: id,
+          email: email,
+          subscription_status: 'free',
+          plan_name: 'free'
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error creating user in Supabase:', error)
+        return new Response('Database error', { status: 500 })
+      }
+
+      console.log('Successfully synced user to Supabase:', newUser)
     } catch (error) {
       console.error('Error syncing user to Supabase:', error)
+      return new Response('Internal server error', { status: 500 })
     }
   }
 
