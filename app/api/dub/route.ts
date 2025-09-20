@@ -105,24 +105,60 @@ async function cloneVoiceWithElevenLabs(audioFilePath: string, speakerId: string
 
 async function getAudioDuration(filePath: string): Promise<number> {
   return new Promise((resolve, reject) => {
+    console.log('Getting audio duration for file:', filePath);
+    
+    // Check if file exists first
+    fs.promises.access(filePath).then(() => {
+      console.log('File exists, running ffprobe');
+    }).catch((err) => {
+      console.error('File does not exist:', filePath, err);
+      reject(new Error(`File does not exist: ${filePath}`));
+      return;
+    });
+    
     const ffprobe = spawn('ffprobe', [
       '-v', 'error',
       '-show_entries', 'format=duration',
       '-of', 'default=noprint_wrappers=1:nokey=1',
       filePath
     ]);
+    
     let output = '';
+    let errorOutput = '';
+    
+    // Add timeout
+    const timeout = setTimeout(() => {
+      ffprobe.kill();
+      reject(new Error('ffprobe timeout after 10 seconds'));
+    }, 10000);
+    
     ffprobe.stdout.on('data', (data) => {
       output += data.toString();
     });
+    
+    ffprobe.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+    
     ffprobe.on('close', (code) => {
+      clearTimeout(timeout);
+      console.log('ffprobe exited with code:', code);
+      if (errorOutput) console.log('ffprobe error output:', errorOutput);
+      
       if (code === 0) {
-        resolve(parseFloat(output.trim()));
+        const duration = parseFloat(output.trim());
+        console.log('Audio duration:', duration, 'seconds');
+        resolve(duration);
       } else {
-        reject(new Error('Failed to get audio duration'));
+        reject(new Error(`Failed to get audio duration. Code: ${code}, Error: ${errorOutput}`));
       }
     });
-    ffprobe.on('error', reject);
+    
+    ffprobe.on('error', (error) => {
+      clearTimeout(timeout);
+      console.error('ffprobe process error:', error);
+      reject(error);
+    });
   });
 }
 
@@ -331,8 +367,23 @@ export async function POST(request: Request) {
       });
     });
 
+    console.log('Concatenation completed, checking final file...');
+    
+    // Check if the concatenated file exists
+    try {
+      const stats = await fs.promises.stat(dubbedAudioFile);
+      console.log('Concatenated file exists, size:', stats.size, 'bytes');
+    } catch (err) {
+      console.error('Concatenated file does not exist:', dubbedAudioFile, err);
+      throw new Error('Concatenated audio file was not created');
+    }
+
     // 5.5. Final adjustment: pad or trim to match original audio length
+    console.log('Starting final adjustment...');
     const originalAudioPath = path.join(process.cwd(), 'public', audioPath);
+    console.log('Original audio path:', originalAudioPath);
+    console.log('Dubbed audio path:', dubbedAudioFile);
+    
     const originalDuration = await getAudioDuration(originalAudioPath);
     const dubbedDuration = await getAudioDuration(dubbedAudioFile);
     console.log('Original audio duration:', originalDuration, 'seconds');
