@@ -18,6 +18,95 @@ export default function Home() {
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const turnstileRef = useRef<any>(null);
 
+  // Browser fingerprinting function
+  const collectBrowserFingerprint = () => {
+    try {
+      const fingerprint = {
+        // Essential browser data
+        userAgent: navigator.userAgent,
+        screenResolution: `${screen.width}x${screen.height}`,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        language: navigator.language,
+        platform: navigator.platform,
+        
+        // Advanced browser data
+        colorDepth: screen.colorDepth,
+        pixelRatio: window.devicePixelRatio,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        maxTouchPoints: navigator.maxTouchPoints,
+        cookieEnabled: navigator.cookieEnabled,
+        doNotTrack: navigator.doNotTrack,
+        
+        // Browser capabilities
+        plugins: Array.from(navigator.plugins).map(p => p.name),
+        mimeTypes: Array.from(navigator.mimeTypes).map(m => m.type),
+        
+        // WebGL info (if available)
+        webglVendor: (() => {
+          try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl') as WebGLRenderingContext | null;
+            if (gl) {
+              const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+              return debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : 'Unknown';
+            }
+            return 'Not Available';
+          } catch (e) {
+            return 'Error';
+          }
+        })(),
+        
+        webglRenderer: (() => {
+          try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl') as WebGLRenderingContext | null;
+            if (gl) {
+              const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+              return debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'Unknown';
+            }
+            return 'Not Available';
+          } catch (e) {
+            return 'Error';
+          }
+        })(),
+        
+        // Network info (if available)
+        connection: (navigator as any).connection ? {
+          effectiveType: (navigator as any).connection.effectiveType,
+          downlink: (navigator as any).connection.downlink,
+          rtt: (navigator as any).connection.rtt
+        } : null,
+        
+        // Browser version detection
+        browserVersion: (() => {
+          const ua = navigator.userAgent;
+          if (ua.includes('Chrome')) {
+            const match = ua.match(/Chrome\/(\d+)/);
+            return match ? `Chrome ${match[1]}` : 'Chrome Unknown';
+          } else if (ua.includes('Firefox')) {
+            const match = ua.match(/Firefox\/(\d+)/);
+            return match ? `Firefox ${match[1]}` : 'Firefox Unknown';
+          } else if (ua.includes('Safari')) {
+            const match = ua.match(/Version\/(\d+)/);
+            return match ? `Safari ${match[1]}` : 'Safari Unknown';
+          } else if (ua.includes('Edge')) {
+            const match = ua.match(/Edge\/(\d+)/);
+            return match ? `Edge ${match[1]}` : 'Edge Unknown';
+          }
+          return 'Unknown Browser';
+        })(),
+        
+        // Timestamp for freshness
+        timestamp: Date.now()
+      };
+      
+      return fingerprint;
+    } catch (error) {
+      console.error('Error collecting browser fingerprint:', error);
+      return null;
+    }
+  };
+
   const fullText = "DubTube";
   const subtitleText = "Translate YouTube videos with perfect audio sync";
 
@@ -108,7 +197,15 @@ export default function Home() {
     setIsVerifying(true);
 
     try {
-      // Verify Turnstile token with server
+      // Collect browser fingerprint
+      const browserFingerprint = collectBrowserFingerprint();
+      
+      if (!browserFingerprint) {
+        setError('Unable to collect browser information. Please try again.');
+        return;
+      }
+
+      // Verify Turnstile token with server and send browser fingerprint
       const response = await fetch('/api/verify-turnstile', {
         method: 'POST',
         headers: {
@@ -117,6 +214,9 @@ export default function Home() {
         body: JSON.stringify({
           token: turnstileToken,
           remoteip: null, // Let server determine IP
+          browserFingerprint: browserFingerprint,
+          videoId: videoId,
+          language: language
         }),
       });
 

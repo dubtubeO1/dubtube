@@ -6,13 +6,15 @@ import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
-    const { videoId } = await request.json();
+    const { videoId, browserFingerprint, clientIP } = await request.json();
     
     if (!videoId) {
       return NextResponse.json({ error: 'Video ID is required' }, { status: 400 });
     }
 
     console.log('Received request for video ID:', videoId);
+    console.log('Browser fingerprint available:', !!browserFingerprint);
+    console.log('Client IP:', clientIP);
 
     // Generate a unique filename
     const filename = `${uuidv4()}.mp3`;
@@ -33,36 +35,67 @@ export async function POST(request: Request): Promise<NextResponse> {
     console.log('Using ffmpeg directory:', ffmpegDir || 'system PATH');
 
     return new Promise<NextResponse>((resolve, reject) => {
-      const args = [
-        youtubeUrl,
-        '-x', // Extract audio
-        '--audio-format', 'mp3',
-        '--audio-quality', '0',
-        '-o', outputPath,
-        '--no-playlist',
-        '--no-warnings',
-        '--quiet',
-        '--verbose', // Add verbose logging for debugging
-        '--no-check-certificate', // Skip certificate validation
-        '--prefer-ffmpeg', // Prefer ffmpeg over other tools
-        '--extract-audio', // Ensure audio extraction
-        '--format', 'bestaudio[ext=m4a]/bestaudio/best', // Fallback format selection
-        '--retries', '3', // Reduced retries
-        '--fragment-retries', '3', // Reduced fragment retries
-        '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1', // Mobile Safari user agent
-        '--referer', 'https://www.youtube.com/', // Add referer header
-        '--add-header', 'Accept-Language:en-US,en;q=0.9', // Add language header
-        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', // Add accept header
-        '--sleep-interval', '1', // Shorter delay
-        '--max-sleep-interval', '3', // Shorter random sleep
-        '--sleep-requests', '1', // Sleep after each request
-        '--extractor-args', 'youtube:player_client=ios', // Use only iOS client
-        '--extractor-args', 'youtube:skip=dash,hls', // Skip problematic formats
-        '--extractor-args', 'youtube:include_live_chat=false', // Skip live chat
-        '--no-cookies', // Don't use cookies
-        '--geo-bypass', // Bypass geo-restrictions
-        '--geo-bypass-country', 'US' // Use US as bypass country
-      ];
+      // Use real browser fingerprint if available, otherwise fallback to our bypass
+      const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
+      
+      let args;
+      
+      if (useRealFingerprint) {
+        console.log('Using real browser fingerprint for extraction');
+        args = [
+          youtubeUrl,
+          '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+          '-o', outputPath,
+          '--no-playlist', '--no-warnings', '--quiet', '--verbose',
+          '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
+          '--format', 'bestaudio[ext=m4a]/bestaudio/best',
+          '--retries', '2', '--fragment-retries', '2',
+          '--user-agent', browserFingerprint.userAgent, // Real user's browser
+          '--referer', 'https://www.youtube.com/', // YouTube referer for real users
+          '--add-header', `Accept-Language:${browserFingerprint.language}`, // Real user's language
+          '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          '--add-header', `Screen-Resolution:${browserFingerprint.screenResolution}`,
+          '--add-header', `Timezone:${browserFingerprint.timezone}`,
+          '--add-header', `Platform:${browserFingerprint.platform}`,
+          '--add-header', `Color-Depth:${browserFingerprint.colorDepth}`,
+          '--add-header', `Pixel-Ratio:${browserFingerprint.pixelRatio}`,
+          '--add-header', `Hardware-Concurrency:${browserFingerprint.hardwareConcurrency}`,
+          '--add-header', `Max-Touch-Points:${browserFingerprint.maxTouchPoints}`,
+          '--add-header', `Cookie-Enabled:${browserFingerprint.cookieEnabled}`,
+          '--add-header', `Do-Not-Track:${browserFingerprint.doNotTrack}`,
+          '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
+          '--extractor-args', 'youtube:player_client=web', // Use web client for real users
+          '--extractor-args', 'youtube:skip=dash,hls', // Skip problematic formats
+          '--extractor-args', 'youtube:include_live_chat=false',
+          '--extractor-args', 'youtube:formats=missing_pot',
+          '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+          '--check-formats'
+        ];
+      } else {
+        console.log('Using fallback bypass method');
+        args = [
+          youtubeUrl,
+          '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+          '-o', outputPath,
+          '--no-playlist', '--no-warnings', '--quiet', '--verbose',
+          '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
+          '--format', 'bestaudio[ext=m4a]/bestaudio/best',
+          '--retries', '3', '--fragment-retries', '3',
+          '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
+          '--referer', 'https://www.google.com/',
+          '--add-header', 'Accept-Language:en-US,en;q=0.9',
+          '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          '--add-header', 'X-Forwarded-For:192.168.1.100',
+          '--add-header', 'X-Real-IP:192.168.1.100',
+          '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
+          '--extractor-args', 'youtube:player_client=android',
+          '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
+          '--extractor-args', 'youtube:include_live_chat=false',
+          '--extractor-args', 'youtube:formats=missing_pot',
+          '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+          '--check-formats'
+        ];
+      }
 
       // Only add ffmpeg-location if we have a specific path
       if (ffmpegDir) {
@@ -96,11 +129,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         } else {
           // Try alternative approach with different format
           console.log('First attempt failed, trying alternative format...');
-          tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir)
+          tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir, browserFingerprint)
             .then(resolve)
             .catch((altError) => {
               console.log('Alternative format failed, trying third fallback...');
-              tryThirdFallback(youtubeUrl, outputPath, ffmpegDir)
+              tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, browserFingerprint)
                 .then(resolve)
                 .catch(reject);
             });
@@ -125,34 +158,60 @@ export async function POST(request: Request): Promise<NextResponse> {
 }
 
 // Alternative format extraction function
-async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmpegDir: string): Promise<NextResponse> {
+async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmpegDir: string, browserFingerprint?: any): Promise<NextResponse> {
   return new Promise<NextResponse>((resolve, reject) => {
-    const args = [
-      youtubeUrl,
-      '-x', // Extract audio
-      '--audio-format', 'mp3',
-      '--audio-quality', '0',
-      '-o', outputPath,
-      '--no-playlist',
-      '--no-warnings',
-      '--quiet',
-      '--format', 'worstaudio/worst', // Try worst quality as fallback
-      '--retries', '3', // Reduced retries
-      '--fragment-retries', '3',
-      '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36', // Android Chrome user agent
-      '--referer', 'https://www.youtube.com/',
-      '--add-header', 'Accept-Language:en-US,en;q=0.9',
-      '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      '--sleep-interval', '2', // Shorter delay
-      '--max-sleep-interval', '4',
-      '--sleep-requests', '2',
-      '--extractor-args', 'youtube:player_client=android', // Use Android client
-      '--extractor-args', 'youtube:skip=dash,hls,webm', // Skip more problematic formats
-      '--extractor-args', 'youtube:include_live_chat=false',
-      '--no-cookies', // Don't use cookies for fallback
-      '--geo-bypass',
-      '--geo-bypass-country', 'US'
-    ];
+    // Use browser fingerprint if available, otherwise use fallback
+    const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
+    
+    let args;
+    
+    if (useRealFingerprint) {
+      console.log('Using real browser fingerprint for alternative format');
+      args = [
+        youtubeUrl,
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '-o', outputPath,
+        '--no-playlist', '--no-warnings', '--quiet',
+        '--format', 'bestaudio/best',
+        '--retries', '2', '--fragment-retries', '2',
+        '--user-agent', browserFingerprint.userAgent,
+        '--referer', 'https://www.youtube.com/',
+        '--add-header', `Accept-Language:${browserFingerprint.language}`,
+        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', `Screen-Resolution:${browserFingerprint.screenResolution}`,
+        '--add-header', `Platform:${browserFingerprint.platform}`,
+        '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
+        '--extractor-args', 'youtube:player_client=android',
+        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
+        '--extractor-args', 'youtube:include_live_chat=false',
+        '--extractor-args', 'youtube:formats=missing_pot',
+        '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+        '--check-formats'
+      ];
+    } else {
+      console.log('Using fallback bypass for alternative format');
+      args = [
+        youtubeUrl,
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '-o', outputPath,
+        '--no-playlist', '--no-warnings', '--quiet',
+        '--format', 'bestaudio/best',
+        '--retries', '2', '--fragment-retries', '2',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--referer', 'https://www.google.com/',
+        '--add-header', 'Accept-Language:en-US,en;q=0.9',
+        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', 'X-Forwarded-For:192.168.1.200',
+        '--add-header', 'X-Real-IP:192.168.1.200',
+        '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
+        '--extractor-args', 'youtube:player_client=web',
+        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
+        '--extractor-args', 'youtube:include_live_chat=false',
+        '--extractor-args', 'youtube:formats=missing_pot',
+        '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+        '--check-formats'
+      ];
+    }
 
     // Only add ffmpeg-location if we have a specific path
     if (ffmpegDir) {
@@ -201,34 +260,60 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
 }
 
 // Third fallback extraction function - most aggressive approach
-async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDir: string): Promise<NextResponse> {
+async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDir: string, browserFingerprint?: any): Promise<NextResponse> {
   return new Promise<NextResponse>((resolve, reject) => {
-    const args = [
-      youtubeUrl,
-      '-x', // Extract audio
-      '--audio-format', 'mp3',
-      '--audio-quality', '0',
-      '-o', outputPath,
-      '--no-playlist',
-      '--no-warnings',
-      '--quiet',
-      '--format', 'worstaudio/worst', // Try worst quality as fallback
-      '--retries', '3', // Reduced retries
-      '--fragment-retries', '3',
-      '--user-agent', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)', // Use Googlebot user agent
-      '--referer', 'https://www.google.com/',
-      '--add-header', 'Accept-Language:en-US,en;q=0.9',
-      '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      '--sleep-interval', '3', // Shorter delay
-      '--max-sleep-interval', '6',
-      '--sleep-requests', '3',
-      '--extractor-args', 'youtube:player_client=web', // Use basic web client
-      '--extractor-args', 'youtube:skip=dash,hls,webm,mp4', // Skip most formats
-      '--extractor-args', 'youtube:include_live_chat=false',
-      '--no-cookies',
-      '--geo-bypass',
-      '--geo-bypass-country', 'US'
-    ];
+    // Use browser fingerprint if available, otherwise use fallback
+    const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
+    
+    let args;
+    
+    if (useRealFingerprint) {
+      console.log('Using real browser fingerprint for third fallback');
+      args = [
+        youtubeUrl,
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '-o', outputPath,
+        '--no-playlist', '--no-warnings', '--quiet',
+        '--format', 'bestaudio/best',
+        '--retries', '2', '--fragment-retries', '2',
+        '--user-agent', browserFingerprint.userAgent,
+        '--referer', 'https://www.youtube.com/',
+        '--add-header', `Accept-Language:${browserFingerprint.language}`,
+        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', `Screen-Resolution:${browserFingerprint.screenResolution}`,
+        '--add-header', `Platform:${browserFingerprint.platform}`,
+        '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
+        '--extractor-args', 'youtube:player_client=tv_embedded',
+        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
+        '--extractor-args', 'youtube:include_live_chat=false',
+        '--extractor-args', 'youtube:formats=missing_pot',
+        '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+        '--check-formats'
+      ];
+    } else {
+      console.log('Using fallback bypass for third fallback');
+      args = [
+        youtubeUrl,
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '-o', outputPath,
+        '--no-playlist', '--no-warnings', '--quiet',
+        '--format', 'bestaudio/best',
+        '--retries', '2', '--fragment-retries', '2',
+        '--user-agent', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        '--referer', 'https://www.google.com/',
+        '--add-header', 'Accept-Language:en-US,en;q=0.9',
+        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', 'X-Forwarded-For:192.168.1.300',
+        '--add-header', 'X-Real-IP:192.168.1.300',
+        '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
+        '--extractor-args', 'youtube:player_client=tv_embedded',
+        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
+        '--extractor-args', 'youtube:include_live_chat=false',
+        '--extractor-args', 'youtube:formats=missing_pot',
+        '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+        '--check-formats'
+      ];
+    }
 
     // Only add ffmpeg-location if we have a specific path
     if (ffmpegDir) {
