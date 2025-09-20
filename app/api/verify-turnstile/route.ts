@@ -60,64 +60,40 @@ export async function POST(request: Request): Promise<NextResponse> {
     const result = await response.json();
 
     if (result.success) {
-      // Turnstile verification successful, now start audio extraction with browser fingerprint
-      try {
-        console.log('Starting audio extraction with browser fingerprint for video:', videoId);
-        
-        // Get client IP from request headers
-        const clientIP = request.headers.get('x-forwarded-for') || 
-                        request.headers.get('x-real-ip') || 
-                        'unknown';
-        
-        // Start audio extraction process with browser fingerprint
-        const extractResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/extract-audio`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            videoId: videoId,
-            language: language,
-            browserFingerprint: browserFingerprint,
-            clientIP: clientIP
-          }),
-        });
-
-        if (!extractResponse.ok) {
-          console.error('Audio extraction failed:', extractResponse.status);
-          return NextResponse.json(
-            { success: false, error: 'Failed to start audio extraction' },
-            { status: 500 }
-          );
+      // Turnstile verification successful, return success
+      // The frontend will handle the audio extraction process
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Verification successful',
+        data: {
+          hostname: result.hostname,
+          challenge_ts: result.challenge_ts,
+          action: result.action,
+          videoId: videoId,
+          language: language,
+          browserFingerprint: browserFingerprint
         }
-
-        const extractResult = await extractResponse.json();
-        
-        return NextResponse.json({ 
-          success: true, 
-          message: 'Verification successful and audio extraction started',
-          data: {
-            hostname: result.hostname,
-            challenge_ts: result.challenge_ts,
-            action: result.action,
-            extractionStarted: true,
-            audioPath: extractResult.audioPath
-          }
-        });
-      } catch (extractError) {
-        console.error('Error starting audio extraction:', extractError);
-        return NextResponse.json(
-          { success: false, error: 'Failed to start audio extraction process' },
-          { status: 500 }
-        );
-      }
+      });
     } else {
       console.error('Turnstile verification failed:', result['error-codes']);
+      
+      // Handle specific error codes
+      const errorCodes = result['error-codes'] || ['unknown-error'];
+      let errorMessage = 'Verification failed';
+      
+      if (errorCodes.includes('timeout-or-duplicate')) {
+        errorMessage = 'Verification token expired or already used. Please try again.';
+      } else if (errorCodes.includes('invalid-input-response')) {
+        errorMessage = 'Invalid verification token. Please try again.';
+      } else if (errorCodes.includes('bad-request')) {
+        errorMessage = 'Verification request failed. Please try again.';
+      }
+      
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Verification failed',
-          errorCodes: result['error-codes'] || ['unknown-error']
+          error: errorMessage,
+          errorCodes: errorCodes
         },
         { status: 400 }
       );

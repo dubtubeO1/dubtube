@@ -228,7 +228,37 @@ export default function Home() {
         return;
       }
 
-      // Verification successful, proceed to video page
+      // Verification successful, now start audio extraction
+      console.log('Turnstile verification successful, starting audio extraction...');
+      
+      // Get client IP from the verification result or use a default
+      const clientIP = 'unknown'; // We'll get this from server headers
+      
+      // Start audio extraction with browser fingerprint
+      const extractResponse = await fetch('/api/extract-audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          videoId: result.data.videoId,
+          language: result.data.language,
+          browserFingerprint: result.data.browserFingerprint,
+          clientIP: clientIP
+        }),
+      });
+
+      if (!extractResponse.ok) {
+        const extractError = await extractResponse.json();
+        setError(extractError.error || 'Failed to start audio extraction process');
+        resetTurnstile();
+        return;
+      }
+
+      const extractResult = await extractResponse.json();
+      console.log('Audio extraction started successfully:', extractResult);
+
+      // Audio extraction started successfully, proceed to video page
       router.push(`/video/${videoId}?lang=${language}`);
     } catch (err) {
       setError('Failed to process video. Please try again.');
