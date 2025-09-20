@@ -58,7 +58,7 @@ async function extractAndConcatSegments(audioPath: string, segments: Transcripti
   await writeFile(concatListPath, concatListContent);
 
   // Output file
-  const outputFile = path.join('public', 'audio', `${speakerId}_cloning_${uuidv4()}.mp3`);
+  const outputFile = path.join(process.cwd(), 'public', 'audio', `${speakerId}_cloning_${uuidv4()}.mp3`);
   await new Promise((resolve, reject) => {
     const ffmpeg = spawn('ffmpeg', [
       '-y',
@@ -273,7 +273,7 @@ export async function POST(request: Request) {
         // Adjust duration to match original segment
         const originalSegment = transcription[i];
         const targetDuration = originalSegment.end - originalSegment.start;
-        const adjustedFile = ttsFile.replace('.mp3', '_adjusted.mp3');
+        const adjustedFile = ttsFile.replace(/\.mp3$/, '_adjusted.mp3');
         await adjustAudioDuration(ttsFile, targetDuration, adjustedFile);
         ttsSegmentFiles.push(adjustedFile);
       } catch (err) {
@@ -285,7 +285,10 @@ export async function POST(request: Request) {
     const concatListPath = path.join(process.cwd(), 'public', 'audio', 'tts_concat_list.txt');
     const concatListContent = ttsSegmentFiles.map(f => `file '${f}'`).join('\n');
     await writeFile(concatListPath, concatListContent);
-    const dubbedAudioFile = path.join('public', 'audio', `dubbed_final_${uuidv4()}.mp3`);
+    const dubbedAudioFile = path.join(process.cwd(), 'public', 'audio', `dubbed_final_${uuidv4()}.mp3`);
+    
+    console.log('Creating final dubbed audio file:', dubbedAudioFile);
+    console.log('TTS segment files count:', ttsSegmentFiles.length);
     await new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', [
         '-y',
@@ -307,7 +310,7 @@ export async function POST(request: Request) {
     const originalDuration = await getAudioDuration(originalAudioPath);
     const dubbedDuration = await getAudioDuration(dubbedAudioFile);
     if (Math.abs(dubbedDuration - originalDuration) > 0.01) {
-      const adjustedDubbedFile = dubbedAudioFile.replace('.mp3', '_final.mp3');
+      const adjustedDubbedFile = dubbedAudioFile.replace(/\.mp3$/, '_final.mp3');
       if (dubbedDuration < originalDuration) {
         // Pad with silence
         const padDuration = originalDuration - dubbedDuration;
@@ -346,11 +349,15 @@ export async function POST(request: Request) {
         });
       }
       // Use the adjusted file for the response
+      const finalAdjustedUrl = adjustedDubbedFile.replace(process.cwd() + '/public', '');
+      console.log('Final adjusted audio URL being returned:', finalAdjustedUrl);
+      console.log('Full adjusted audio file path:', adjustedDubbedFile);
+      
       return NextResponse.json({
         speakerDurations,
         speakerVoices,
         speakerSegments,
-        dubbedAudioUrl: adjustedDubbedFile.replace('public', ''),
+        dubbedAudioUrl: finalAdjustedUrl,
         message: 'Dubbed audio generation complete and final adjustment applied.'
       });
     }
@@ -359,11 +366,15 @@ export async function POST(request: Request) {
     await cleanupAudioFolders();
 
     // If no adjustment was needed, return the original dubbed file
+    const finalAudioUrl = dubbedAudioFile.replace(process.cwd() + '/public', '');
+    console.log('Final audio URL being returned:', finalAudioUrl);
+    console.log('Full dubbed audio file path:', dubbedAudioFile);
+    
     return NextResponse.json({
       speakerDurations,
       speakerVoices,
       speakerSegments,
-      dubbedAudioUrl: dubbedAudioFile.replace('public', ''),
+      dubbedAudioUrl: finalAudioUrl,
       message: 'Dubbed audio generation complete (no final adjustment needed).'
     });
   } catch (error) {
