@@ -289,6 +289,8 @@ export async function POST(request: Request) {
     
     console.log('Creating final dubbed audio file:', dubbedAudioFile);
     console.log('TTS segment files count:', ttsSegmentFiles.length);
+    console.log('Concat list content:', concatListContent);
+    
     await new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', [
         '-y',
@@ -298,22 +300,51 @@ export async function POST(request: Request) {
         '-c', 'copy',
         dubbedAudioFile
       ]);
-      ffmpeg.on('close', (code) => {
-        if (code === 0) resolve(null);
-        else reject(new Error(`ffmpeg exited with code ${code}`));
+      
+      let ffmpegOutput = '';
+      let ffmpegError = '';
+      
+      ffmpeg.stdout.on('data', (data) => {
+        ffmpegOutput += data.toString();
       });
-      ffmpeg.on('error', reject);
+      
+      ffmpeg.stderr.on('data', (data) => {
+        ffmpegError += data.toString();
+      });
+      
+      ffmpeg.on('close', (code) => {
+        console.log('FFmpeg concatenation process exited with code:', code);
+        if (ffmpegOutput) console.log('FFmpeg output:', ffmpegOutput);
+        if (ffmpegError) console.log('FFmpeg error:', ffmpegError);
+        
+        if (code === 0) {
+          console.log('FFmpeg concatenation successful');
+          resolve(null);
+        } else {
+          console.error('FFmpeg concatenation failed with code:', code);
+          reject(new Error(`ffmpeg exited with code ${code}`));
+        }
+      });
+      ffmpeg.on('error', (error) => {
+        console.error('FFmpeg process error:', error);
+        reject(error);
+      });
     });
 
     // 5.5. Final adjustment: pad or trim to match original audio length
     const originalAudioPath = path.join(process.cwd(), 'public', audioPath);
     const originalDuration = await getAudioDuration(originalAudioPath);
     const dubbedDuration = await getAudioDuration(dubbedAudioFile);
+    console.log('Original audio duration:', originalDuration, 'seconds');
+    console.log('Dubbed audio duration:', dubbedDuration, 'seconds');
+    console.log('Duration difference:', Math.abs(dubbedDuration - originalDuration), 'seconds');
+    
     if (Math.abs(dubbedDuration - originalDuration) > 0.01) {
       const adjustedDubbedFile = dubbedAudioFile.replace(/\.mp3$/, '_final.mp3');
       if (dubbedDuration < originalDuration) {
         // Pad with silence
         const padDuration = originalDuration - dubbedDuration;
+        console.log('Padding audio with', padDuration, 'seconds of silence');
         await new Promise((resolve, reject) => {
           const ffmpeg = spawn('ffmpeg', [
             '-y',
@@ -325,14 +356,39 @@ export async function POST(request: Request) {
             '-c:a', 'mp3',
             adjustedDubbedFile
           ]);
-          ffmpeg.on('close', (code) => {
-            if (code === 0) resolve(null);
-            else reject(new Error(`ffmpeg pad (final) exited with code ${code}`));
+          
+          let ffmpegOutput = '';
+          let ffmpegError = '';
+          
+          ffmpeg.stdout.on('data', (data) => {
+            ffmpegOutput += data.toString();
           });
-          ffmpeg.on('error', reject);
+          
+          ffmpeg.stderr.on('data', (data) => {
+            ffmpegError += data.toString();
+          });
+          
+          ffmpeg.on('close', (code) => {
+            console.log('FFmpeg pad (final) process exited with code:', code);
+            if (ffmpegOutput) console.log('FFmpeg pad output:', ffmpegOutput);
+            if (ffmpegError) console.log('FFmpeg pad error:', ffmpegError);
+            
+            if (code === 0) {
+              console.log('FFmpeg pad (final) successful');
+              resolve(null);
+            } else {
+              console.error('FFmpeg pad (final) failed with code:', code);
+              reject(new Error(`ffmpeg pad (final) exited with code ${code}`));
+            }
+          });
+          ffmpeg.on('error', (error) => {
+            console.error('FFmpeg pad (final) process error:', error);
+            reject(error);
+          });
         });
       } else {
         // Trim to match
+        console.log('Trimming audio to', originalDuration, 'seconds');
         await new Promise((resolve, reject) => {
           const ffmpeg = spawn('ffmpeg', [
             '-y',
@@ -341,17 +397,49 @@ export async function POST(request: Request) {
             '-c:a', 'mp3',
             adjustedDubbedFile
           ]);
-          ffmpeg.on('close', (code) => {
-            if (code === 0) resolve(null);
-            else reject(new Error(`ffmpeg trim (final) exited with code ${code}`));
+          
+          let ffmpegOutput = '';
+          let ffmpegError = '';
+          
+          ffmpeg.stdout.on('data', (data) => {
+            ffmpegOutput += data.toString();
           });
-          ffmpeg.on('error', reject);
+          
+          ffmpeg.stderr.on('data', (data) => {
+            ffmpegError += data.toString();
+          });
+          
+          ffmpeg.on('close', (code) => {
+            console.log('FFmpeg trim (final) process exited with code:', code);
+            if (ffmpegOutput) console.log('FFmpeg trim output:', ffmpegOutput);
+            if (ffmpegError) console.log('FFmpeg trim error:', ffmpegError);
+            
+            if (code === 0) {
+              console.log('FFmpeg trim (final) successful');
+              resolve(null);
+            } else {
+              console.error('FFmpeg trim (final) failed with code:', code);
+              reject(new Error(`ffmpeg trim (final) exited with code ${code}`));
+            }
+          });
+          ffmpeg.on('error', (error) => {
+            console.error('FFmpeg trim (final) process error:', error);
+            reject(error);
+          });
         });
       }
       // Use the adjusted file for the response
       const finalAdjustedUrl = adjustedDubbedFile.replace(process.cwd() + '/public', '');
       console.log('Final adjusted audio URL being returned:', finalAdjustedUrl);
       console.log('Full adjusted audio file path:', adjustedDubbedFile);
+      
+      // Check if the file actually exists
+      try {
+        const stats = await fs.promises.stat(adjustedDubbedFile);
+        console.log('Adjusted audio file exists, size:', stats.size, 'bytes');
+      } catch (err) {
+        console.error('Adjusted audio file does not exist:', err);
+      }
       
       return NextResponse.json({
         speakerDurations,
@@ -369,6 +457,14 @@ export async function POST(request: Request) {
     const finalAudioUrl = dubbedAudioFile.replace(process.cwd() + '/public', '');
     console.log('Final audio URL being returned:', finalAudioUrl);
     console.log('Full dubbed audio file path:', dubbedAudioFile);
+    
+    // Check if the file actually exists
+    try {
+      const stats = await fs.promises.stat(dubbedAudioFile);
+      console.log('Dubbed audio file exists, size:', stats.size, 'bytes');
+    } catch (err) {
+      console.error('Dubbed audio file does not exist:', err);
+    }
     
     return NextResponse.json({
       speakerDurations,
