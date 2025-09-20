@@ -47,22 +47,19 @@ export async function POST(request: Request): Promise<NextResponse> {
         '--prefer-ffmpeg', // Prefer ffmpeg over other tools
         '--extract-audio', // Ensure audio extraction
         '--format', 'bestaudio[ext=m4a]/bestaudio/best', // Fallback format selection
-        '--retries', '5', // More retries
-        '--fragment-retries', '5', // More fragment retries
+        '--retries', '3', // Reduced retries
+        '--fragment-retries', '3', // Reduced fragment retries
         '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1', // Mobile Safari user agent
         '--referer', 'https://www.youtube.com/', // Add referer header
         '--add-header', 'Accept-Language:en-US,en;q=0.9', // Add language header
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', // Add accept header
-        '--add-header', 'X-Forwarded-For:192.168.1.1', // Add forwarded IP
-        '--add-header', 'X-Real-IP:192.168.1.1', // Add real IP
-        '--sleep-interval', '2', // Longer delay between requests
-        '--max-sleep-interval', '5', // Random sleep between 2-5 seconds
-        '--sleep-requests', '2', // Sleep after each request
-        '--extractor-args', 'youtube:player_client=ios,android,web', // Use multiple mobile clients
+        '--sleep-interval', '1', // Shorter delay
+        '--max-sleep-interval', '3', // Shorter random sleep
+        '--sleep-requests', '1', // Sleep after each request
+        '--extractor-args', 'youtube:player_client=ios', // Use only iOS client
         '--extractor-args', 'youtube:skip=dash,hls', // Skip problematic formats
         '--extractor-args', 'youtube:include_live_chat=false', // Skip live chat
-        '--cookies-from-browser', 'chrome', // Try to use browser cookies if available
-        '--no-cookies', // Fallback: don't use cookies if browser method fails
+        '--no-cookies', // Don't use cookies
         '--geo-bypass', // Bypass geo-restrictions
         '--geo-bypass-country', 'US' // Use US as bypass country
       ];
@@ -140,18 +137,16 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
       '--no-warnings',
       '--quiet',
       '--format', 'worstaudio/worst', // Try worst quality as fallback
-      '--retries', '7', // Even more retries for fallback
-      '--fragment-retries', '7',
+      '--retries', '3', // Reduced retries
+      '--fragment-retries', '3',
       '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36', // Android Chrome user agent
       '--referer', 'https://www.youtube.com/',
       '--add-header', 'Accept-Language:en-US,en;q=0.9',
       '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      '--add-header', 'X-Forwarded-For:10.0.0.1',
-      '--add-header', 'X-Real-IP:10.0.0.1',
-      '--sleep-interval', '3', // Even longer delay for fallback
-      '--max-sleep-interval', '7',
-      '--sleep-requests', '3',
-      '--extractor-args', 'youtube:player_client=android,tv_embedded', // Use TV embedded client
+      '--sleep-interval', '2', // Shorter delay
+      '--max-sleep-interval', '4',
+      '--sleep-requests', '2',
+      '--extractor-args', 'youtube:player_client=android', // Use Android client
       '--extractor-args', 'youtube:skip=dash,hls,webm', // Skip more problematic formats
       '--extractor-args', 'youtube:include_live_chat=false',
       '--no-cookies', // Don't use cookies for fallback
@@ -218,25 +213,21 @@ async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDi
       '--no-warnings',
       '--quiet',
       '--format', 'worstaudio/worst', // Try worst quality as fallback
-      '--retries', '10', // Maximum retries
-      '--fragment-retries', '10',
+      '--retries', '3', // Reduced retries
+      '--fragment-retries', '3',
       '--user-agent', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)', // Use Googlebot user agent
       '--referer', 'https://www.google.com/',
       '--add-header', 'Accept-Language:en-US,en;q=0.9',
       '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      '--add-header', 'X-Forwarded-For:66.249.66.1',
-      '--add-header', 'X-Real-IP:66.249.66.1',
-      '--sleep-interval', '5', // Longest delay
-      '--max-sleep-interval', '10',
-      '--sleep-requests', '5',
+      '--sleep-interval', '3', // Shorter delay
+      '--max-sleep-interval', '6',
+      '--sleep-requests', '3',
       '--extractor-args', 'youtube:player_client=web', // Use basic web client
       '--extractor-args', 'youtube:skip=dash,hls,webm,mp4', // Skip most formats
       '--extractor-args', 'youtube:include_live_chat=false',
       '--no-cookies',
       '--geo-bypass',
-      '--geo-bypass-country', 'US',
-      '--ignore-errors', // Ignore errors and continue
-      '--no-abort-on-error' // Don't abort on errors
+      '--geo-bypass-country', 'US'
     ];
 
     // Only add ffmpeg-location if we have a specific path
