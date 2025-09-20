@@ -12,9 +12,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'Video ID is required' }, { status: 400 });
     }
 
+    // Get real client IP from request headers
+    const realClientIP = request.headers.get('x-forwarded-for') || 
+                        request.headers.get('x-real-ip') || 
+                        request.headers.get('cf-connecting-ip') ||
+                        clientIP || 
+                        'unknown';
+    
     console.log('Received request for video ID:', videoId);
     console.log('Browser fingerprint available:', !!browserFingerprint);
-    console.log('Client IP:', clientIP);
+    console.log('Client IP from headers:', realClientIP);
 
     // Generate a unique filename
     const filename = `${uuidv4()}.mp3`;
@@ -48,12 +55,19 @@ export async function POST(request: Request): Promise<NextResponse> {
           '-o', outputPath,
           '--no-playlist', '--no-warnings', '--quiet', '--verbose',
           '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
-          '--format', 'bestaudio[ext=m4a]/bestaudio/best',
-          '--retries', '2', '--fragment-retries', '2',
+          '--format', 'bestaudio[height<=720]/bestaudio',
+          '--retries', '3', '--fragment-retries', '3',
           '--user-agent', browserFingerprint.userAgent, // Real user's browser
           '--referer', 'https://www.youtube.com/', // YouTube referer for real users
           '--add-header', `Accept-Language:${browserFingerprint.language}`, // Real user's language
           '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          '--add-header', 'Accept-Encoding:gzip, deflate, br',
+          '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
+          '--add-header', 'Cache-Control:no-cache',
+          '--add-header', 'Pragma:no-cache',
+          '--add-header', `X-Forwarded-For:${realClientIP}`, // Real user's IP
+          '--add-header', `X-Real-IP:${realClientIP}`, // Real user's IP
+          '--add-header', `X-Client-IP:${realClientIP}`, // Real user's IP
           '--add-header', `Screen-Resolution:${browserFingerprint.screenResolution}`,
           '--add-header', `Timezone:${browserFingerprint.timezone}`,
           '--add-header', `Platform:${browserFingerprint.platform}`,
@@ -63,12 +77,12 @@ export async function POST(request: Request): Promise<NextResponse> {
           '--add-header', `Max-Touch-Points:${browserFingerprint.maxTouchPoints}`,
           '--add-header', `Cookie-Enabled:${browserFingerprint.cookieEnabled}`,
           '--add-header', `Do-Not-Track:${browserFingerprint.doNotTrack}`,
-          '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
-          '--extractor-args', 'youtube:player_client=web', // Use web client for real users
+          '--sleep-interval', '2', '--max-sleep-interval', '5', '--sleep-requests', '2',
+          '--extractor-args', 'youtube:player_client=ios,android,web', // Use multiple clients for real users
           '--extractor-args', 'youtube:skip=dash,hls', // Skip problematic formats
           '--extractor-args', 'youtube:include_live_chat=false',
           '--extractor-args', 'youtube:formats=missing_pot',
-          '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+          '--geo-bypass', '--geo-bypass-country', 'US',
           '--check-formats'
         ];
       } else {
@@ -79,7 +93,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           '-o', outputPath,
           '--no-playlist', '--no-warnings', '--quiet', '--verbose',
           '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
-          '--format', 'bestaudio[ext=m4a]/bestaudio/best',
+          '--format', 'bestaudio[height<=720]/bestaudio',
           '--retries', '3', '--fragment-retries', '3',
           '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
           '--referer', 'https://www.google.com/',
@@ -92,7 +106,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
           '--extractor-args', 'youtube:include_live_chat=false',
           '--extractor-args', 'youtube:formats=missing_pot',
-          '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+          '--geo-bypass', '--geo-bypass-country', 'US',
           '--check-formats'
         ];
       }
