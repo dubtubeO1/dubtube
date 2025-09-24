@@ -24,6 +24,14 @@ const DEFAULT_VOICES = [
   'yoZ06aMxZJJ28mfd3POQ', // Arnold
 ];
 
+// Ensure paths that come from the client like "/audio/xyz.mp3" are resolved under public/
+function resolvePublicPath(maybePublicSubpath: string): string {
+  const withoutLeadingSlash = maybePublicSubpath.startsWith('/')
+    ? maybePublicSubpath.slice(1)
+    : maybePublicSubpath;
+  return path.join(process.cwd(), 'public', withoutLeadingSlash);
+}
+
 async function extractAndConcatSegments(audioPath: string, segments: TranscriptionSegment[], speakerId: string): Promise<string> {
   // Ensure the temp directory exists
   const tempDir = path.join(process.cwd(), 'public', 'audio', 'temp');
@@ -37,7 +45,7 @@ async function extractAndConcatSegments(audioPath: string, segments: Transcripti
     await new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', [
         '-y',
-        '-i', path.join(process.cwd(), 'public', audioPath),
+        '-i', resolvePublicPath(audioPath),
         '-ss', seg.start.toString(),
         '-to', seg.end.toString(),
         '-c', 'copy',
@@ -380,7 +388,7 @@ export async function POST(request: Request) {
 
     // 5.5. Final adjustment: pad or trim to match original audio length
     console.log('Starting final adjustment...');
-    const originalAudioPath = path.join(process.cwd(), 'public', audioPath);
+    const originalAudioPath = resolvePublicPath(audioPath);
     console.log('Original audio path:', originalAudioPath);
     console.log('Dubbed audio path:', dubbedAudioFile);
     
