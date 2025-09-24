@@ -500,11 +500,14 @@ export async function POST(request: Request) {
         console.error('Adjusted audio file does not exist:', err);
       }
       
+      // Serve via streaming endpoint to ensure Range support
+      const finalBasename = path.basename(adjustedDubbedFile);
+      const streamUrl = `/api/serve-audio?f=${encodeURIComponent(finalBasename)}`;
       return NextResponse.json({
         speakerDurations,
         speakerVoices,
         speakerSegments,
-        dubbedAudioUrl: finalAdjustedUrl,
+        dubbedAudioUrl: streamUrl,
         message: 'Dubbed audio generation complete and final adjustment applied.'
       });
     }
@@ -513,8 +516,9 @@ export async function POST(request: Request) {
     await cleanupAudioFolders();
 
     // If no adjustment was needed, return the original dubbed file
-    const finalAudioUrl = dubbedAudioFile.replace(process.cwd() + '/public', '');
-    console.log('Final audio URL being returned:', finalAudioUrl);
+    const finalBasename = path.basename(dubbedAudioFile);
+    const finalAudioUrl = `/api/serve-audio?f=${encodeURIComponent(finalBasename)}`;
+    console.log('Final audio stream URL being returned:', finalAudioUrl);
     console.log('Full dubbed audio file path:', dubbedAudioFile);
     
     // Check if the file actually exists
