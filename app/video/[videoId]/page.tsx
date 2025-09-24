@@ -288,6 +288,67 @@ export default function VideoPage() {
     };
   }, [dubbedAudioUrl]);
 
+  // Verify dubbed audio URL is reachable and force metadata load
+  useEffect(() => {
+    const verifyAndLoad = async () => {
+      if (!dubbedAudioUrl || !audioRef.current) return;
+      try {
+        // HEAD check to make sure file is served correctly
+        const res = await fetch(dubbedAudioUrl, { method: 'HEAD' });
+        console.log('Dubbed audio HEAD check:', {
+          url: dubbedAudioUrl,
+          ok: res.ok,
+          status: res.status,
+          contentLength: res.headers.get('content-length'),
+          contentType: res.headers.get('content-type'),
+          acceptRanges: res.headers.get('accept-ranges'),
+        });
+      } catch (e) {
+        console.error('Dubbed audio HEAD request failed:', e);
+      }
+
+      // Force reload metadata
+      try {
+        const audio = audioRef.current;
+        audio.src = dubbedAudioUrl;
+        audio.preload = 'metadata';
+        audio.load();
+      } catch (e) {
+        console.error('Error forcing audio load:', e);
+      }
+    };
+
+    // Attach error listeners to surface failures
+    const audio = audioRef.current;
+    const onError = (ev: any) => {
+      const target = ev?.target as HTMLAudioElement | undefined;
+      console.error('Audio element error:', {
+        networkState: target?.networkState,
+        readyState: target?.readyState,
+        error: target?.error,
+        src: target?.currentSrc,
+      });
+    };
+    const onStalled = () => console.warn('Audio stalled');
+    const onEmptied = () => console.warn('Audio emptied');
+
+    if (audio) {
+      audio.addEventListener('error', onError);
+      audio.addEventListener('stalled', onStalled);
+      audio.addEventListener('emptied', onEmptied);
+    }
+
+    verifyAndLoad();
+
+    return () => {
+      if (audio) {
+        audio.removeEventListener('error', onError);
+        audio.removeEventListener('stalled', onStalled);
+        audio.removeEventListener('emptied', onEmptied);
+      }
+    };
+  }, [dubbedAudioUrl]);
+
   // Manual check for readiness after a delay
   useEffect(() => {
     if (!dubbedAudioUrl) return;
@@ -703,7 +764,8 @@ export default function VideoPage() {
                   ref={audioRef}
                   controls
                   className="w-full"
-                  src={dubbedAudioUrl}
+                  src={dubbedAudioUrl || undefined}
+                  preload="metadata"
                 />
               </div>
             ) : (
