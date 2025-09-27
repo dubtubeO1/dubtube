@@ -129,7 +129,22 @@ export default function Dashboard() {
                 <p className="text-sm text-slate-500">Current Plan</p>
                 <p className="text-slate-700 capitalize">{userData?.plan_name || 'Free'}</p>
               </div>
-              <button className="w-full mt-4 py-2 px-4 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors">
+              <button 
+                onClick={async () => {
+                  try {
+                    const response = await fetch('/api/stripe/portal', {
+                      method: 'POST',
+                    });
+                    const { url } = await response.json();
+                    if (url) {
+                      window.location.href = url;
+                    }
+                  } catch (error) {
+                    console.error('Error opening billing portal:', error);
+                  }
+                }}
+                className="w-full mt-4 py-2 px-4 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors"
+              >
                 Manage Subscription
               </button>
             </div>
@@ -146,11 +161,11 @@ export default function Dashboard() {
             <div className="space-y-3">
               <div>
                 <p className="text-sm text-slate-500">Videos Processed</p>
-                <p className="text-2xl font-bold text-slate-700">0</p>
+                <p className="text-2xl font-bold text-slate-700">{userData?.videos_processed || 0}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500">Total Duration</p>
-                <p className="text-2xl font-bold text-slate-700">0 min</p>
+                <p className="text-2xl font-bold text-slate-700">{Math.round((userData?.total_duration_seconds || 0) / 60)} min</p>
               </div>
               <button className="w-full mt-4 py-2 px-4 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors">
                 View Details

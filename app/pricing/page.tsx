@@ -1,5 +1,9 @@
-import React from 'react';
+'use client';
+
+import React, { useState } from 'react';
 import { Check, Star, Zap, Globe, Headphones } from 'lucide-react';
+import { useUser, SignInButton } from '@clerk/nextjs';
+import { getStripe } from '@/lib/stripe-client';
 
 const plans = [
   {
@@ -18,6 +22,7 @@ const plans = [
     icon: Globe,
     disabled: true,
     comingSoon: true,
+    planType: null,
   },
   {
     name: 'Monthly',
@@ -33,6 +38,7 @@ const plans = [
     button: 'Subscribe',
     highlight: false,
     icon: Star,
+    planType: 'monthly',
   },
   {
     name: '3 Months',
@@ -48,6 +54,7 @@ const plans = [
     button: 'Buy 3 Months',
     highlight: true,
     icon: Zap,
+    planType: 'quarterly',
   },
   {
     name: '12 Months',
@@ -63,6 +70,7 @@ const plans = [
     button: 'Buy 12 Months',
     highlight: false,
     icon: Headphones,
+    planType: 'annual',
   },
 ];
 
@@ -94,6 +102,38 @@ const faqs = [
 ];
 
 export default function PricingPage() {
+  const { user, isLoaded } = useUser();
+  const [loading, setLoading] = useState<string | null>(null);
+
+  const handleCheckout = async (planType: string) => {
+    if (!user) return;
+    
+    setLoading(planType);
+    
+    try {
+      const response = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ planType }),
+      });
+
+      const { sessionId } = await response.json();
+      
+      if (sessionId) {
+        const stripe = await getStripe();
+        if (stripe) {
+          await stripe.redirectToCheckout({ sessionId });
+        }
+      }
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+    } finally {
+      setLoading(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 relative overflow-hidden">
       {/* Floating background blobs */}
@@ -194,18 +234,32 @@ export default function PricingPage() {
                   ))}
                 </ul>
                 
-                <button
-                  className={`w-full py-4 rounded-2xl font-semibold transition-all duration-300 ${
-                    plan.disabled
-                      ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-not-allowed opacity-60'
-                      : plan.highlight 
-                      ? 'bg-white text-slate-700 hover:bg-slate-50 shadow-lg hover:shadow-xl transform hover:scale-105' 
-                      : 'bg-gradient-to-r from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white hover:from-slate-800 hover:to-slate-700 dark:hover:from-slate-500 dark:hover:to-slate-400 shadow-lg hover:shadow-xl transform hover:scale-105'
-                  }`}
-                  disabled={plan.disabled}
-                >
-                  {plan.button}
-                </button>
+                {plan.disabled ? (
+                  <button
+                    className="w-full py-4 rounded-2xl font-semibold transition-all duration-300 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-not-allowed opacity-60"
+                    disabled
+                  >
+                    {plan.button}
+                  </button>
+                ) : !user ? (
+                  <SignInButton mode="modal">
+                    <button className="w-full py-4 rounded-2xl font-semibold transition-all duration-300 bg-gradient-to-r from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white hover:from-slate-800 hover:to-slate-700 dark:hover:from-slate-500 dark:hover:to-slate-400 shadow-lg hover:shadow-xl transform hover:scale-105">
+                      {plan.button}
+                    </button>
+                  </SignInButton>
+                ) : (
+                  <button
+                    onClick={() => plan.planType && handleCheckout(plan.planType)}
+                    disabled={loading === plan.planType}
+                    className={`w-full py-4 rounded-2xl font-semibold transition-all duration-300 ${
+                      plan.highlight 
+                        ? 'bg-white text-slate-700 hover:bg-slate-50 shadow-lg hover:shadow-xl transform hover:scale-105' 
+                        : 'bg-gradient-to-r from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white hover:from-slate-800 hover:to-slate-700 dark:hover:from-slate-500 dark:hover:to-slate-400 shadow-lg hover:shadow-xl transform hover:scale-105'
+                    } ${loading === plan.planType ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {loading === plan.planType ? 'Processing...' : plan.button}
+                  </button>
+                )}
               </div>
             );
           })}

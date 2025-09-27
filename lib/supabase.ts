@@ -19,6 +19,8 @@ export type Database = {
           email: string
           subscription_status: string | null
           plan_name: string | null
+          videos_processed: number | null
+          total_duration_seconds: number | null
           created_at: string
           updated_at: string
         }
@@ -28,6 +30,8 @@ export type Database = {
           email: string
           subscription_status?: string | null
           plan_name?: string | null
+          videos_processed?: number | null
+          total_duration_seconds?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -37,6 +41,8 @@ export type Database = {
           email?: string
           subscription_status?: string | null
           plan_name?: string | null
+          videos_processed?: number | null
+          total_duration_seconds?: number | null
           created_at?: string
           updated_at?: string
         }
