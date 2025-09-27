@@ -161,11 +161,11 @@ export default function Dashboard() {
             <div className="space-y-3">
               <div>
                 <p className="text-sm text-slate-500">Videos Processed</p>
-                <p className="text-2xl font-bold text-slate-700">{userData?.videos_processed || 0}</p>
+                <p className="text-2xl font-bold text-slate-700">Unlimited</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500">Total Duration</p>
-                <p className="text-2xl font-bold text-slate-700">{Math.round((userData?.total_duration_seconds || 0) / 60)} min</p>
+                <p className="text-2xl font-bold text-slate-700">Unlimited</p>
               </div>
               <button className="w-full mt-4 py-2 px-4 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors">
                 View Details

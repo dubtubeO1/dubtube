@@ -7,8 +7,6 @@ export interface UserData {
   email: string
   subscription_status: string | null
   plan_name: string | null
-  videos_processed: number | null
-  total_duration_seconds: number | null
   created_at: string
   updated_at: string
 }
@@ -50,9 +48,7 @@ export async function syncUserToSupabase(clerkUser: User): Promise<UserData | nu
         clerk_user_id: clerkUser.id,
         email: email,
         subscription_status: 'free',
-        plan_name: 'free',
-        videos_processed: 0,
-        total_duration_seconds: 0
+        plan_name: 'free'
       })
       .select()
       .single()
