@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
         },
       ],
       mode: planType === 'monthly' ? 'subscription' : 'payment',
-      success_url: `${request.nextUrl.origin}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${request.nextUrl.origin}/pricing?canceled=true`,
+      success_url: `https://dubtube.net/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://dubtube.net/pricing?canceled=true`,
       customer_email: user?.emailAddresses[0]?.emailAddress,
       metadata: {
         clerk_user_id: userId,

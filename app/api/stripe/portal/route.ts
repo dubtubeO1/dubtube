@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     // Create Stripe customer portal session
     const session = await stripe.billingPortal.sessions.create({
       customer: userId, // Using Clerk user ID as customer ID
-      return_url: `${request.nextUrl.origin}/dashboard`,
+      return_url: `https://dubtube.net/dashboard`,
     });
 
     return NextResponse.json({ url: session.url });
