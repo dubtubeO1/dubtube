@@ -17,6 +17,17 @@ export default function Dashboard() {
     }
   }, [isLoaded, user])
 
+  // Refresh data when returning from Stripe checkout
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('success') === 'true') {
+      // Refresh user data after successful payment
+      setTimeout(() => {
+        fetchUserData()
+      }, 2000)
+    }
+  }, [])
+
   const fetchUserData = async () => {
     if (!user) return
 
