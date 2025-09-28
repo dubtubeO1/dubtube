@@ -38,9 +38,10 @@ export async function POST(request: NextRequest) {
         const session = event.data.object as Stripe.Checkout.Session;
         const clerkUserId = session.metadata?.clerk_user_id;
         const planName = session.metadata?.plan_name;
+        const stripeCustomerId = session.customer as string;
 
         if (clerkUserId && planName) {
-          await updateUserSubscription(clerkUserId, 'active', planName.toLowerCase());
+          await updateUserSubscription(clerkUserId, 'active', planName.toLowerCase(), stripeCustomerId);
           console.log(`Updated subscription for user ${clerkUserId} to ${planName}`);
         }
         break;

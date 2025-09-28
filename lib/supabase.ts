@@ -19,6 +19,7 @@ export type Database = {
           email: string
           subscription_status: string | null
           plan_name: string | null
+          stripe_customer_id: string | null
           created_at: string
           updated_at: string
         }
@@ -28,6 +29,7 @@ export type Database = {
           email: string
           subscription_status?: string | null
           plan_name?: string | null
+          stripe_customer_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -37,6 +39,7 @@ export type Database = {
           email?: string
           subscription_status?: string | null
           plan_name?: string | null
+          stripe_customer_id?: string | null
           created_at?: string
           updated_at?: string
         }

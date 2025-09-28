@@ -10,9 +10,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get the Stripe customer ID from the user's subscription
+    const { userData } = await request.json();
+    
+    if (!userData?.stripe_customer_id) {
+      return NextResponse.json(
+        { error: 'No Stripe customer found. Please contact support.' },
+        { status: 400 }
+      );
+    }
+
     // Create Stripe customer portal session
     const session = await stripe.billingPortal.sessions.create({
-      customer: userId, // Using Clerk user ID as customer ID
+      customer: userData.stripe_customer_id,
       return_url: `https://dubtube.net/dashboard`,
     });
 

@@ -145,6 +145,10 @@ export default function Dashboard() {
                   try {
                     const response = await fetch('/api/stripe/portal', {
                       method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({ userData }),
                     });
                     const { url } = await response.json();
                     if (url) {

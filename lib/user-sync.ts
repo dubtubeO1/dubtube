@@ -7,6 +7,7 @@ export interface UserData {
   email: string
   subscription_status: string | null
   plan_name: string | null
+  stripe_customer_id: string | null
   created_at: string
   updated_at: string
 }
@@ -100,7 +101,8 @@ export async function getUserFromSupabase(clerkUserId: string): Promise<UserData
 export async function updateUserSubscription(
   clerkUserId: string, 
   subscriptionStatus: string, 
-  planName: string
+  planName: string,
+  stripeCustomerId?: string
 ): Promise<boolean> {
   try {
     if (!supabase) {
@@ -108,13 +110,19 @@ export async function updateUserSubscription(
       return false
     }
 
+    const updateData: any = {
+      subscription_status: subscriptionStatus,
+      plan_name: planName,
+      updated_at: new Date().toISOString()
+    }
+
+    if (stripeCustomerId) {
+      updateData.stripe_customer_id = stripeCustomerId
+    }
+
     const { error } = await supabase
       .from('users')
-      .update({
-        subscription_status: subscriptionStatus,
-        plan_name: planName,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('clerk_user_id', clerkUserId)
 
     if (error) {
