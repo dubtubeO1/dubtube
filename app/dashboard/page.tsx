@@ -142,7 +142,16 @@ export default function Dashboard() {
               </div>
               <button 
                 onClick={async () => {
+                  console.log('Manage Subscription clicked');
+                  console.log('User data:', userData);
+                  
+                  if (!userData?.stripe_customer_id) {
+                    alert('No Stripe customer found. Please contact support.');
+                    return;
+                  }
+                  
                   try {
+                    console.log('Sending request to /api/stripe/portal');
                     const response = await fetch('/api/stripe/portal', {
                       method: 'POST',
                       headers: {
@@ -150,12 +159,21 @@ export default function Dashboard() {
                       },
                       body: JSON.stringify({ userData }),
                     });
-                    const { url } = await response.json();
-                    if (url) {
-                      window.location.href = url;
+                    
+                    console.log('Response status:', response.status);
+                    const result = await response.json();
+                    console.log('Response data:', result);
+                    
+                    if (result.url) {
+                      console.log('Redirecting to:', result.url);
+                      window.location.href = result.url;
+                    } else {
+                      console.error('No URL in response:', result);
+                      alert('Failed to open billing portal. Please try again.');
                     }
                   } catch (error) {
                     console.error('Error opening billing portal:', error);
+                    alert('Error opening billing portal. Please try again.');
                   }
                 }}
                 className="w-full mt-4 py-2 px-4 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors"
