@@ -3,9 +3,30 @@ import { spawn } from 'child_process';
 import { mkdir } from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { auth } from '@clerk/nextjs/server';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check subscription status
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+    const { data: userRow } = await supabaseAdmin
+      .from('users')
+      .select('subscription_status')
+      .eq('clerk_user_id', userId)
+      .single();
+
+    if (!userRow || (userRow.subscription_status !== 'active' && userRow.subscription_status !== 'legacy')) {
+      return NextResponse.json({ error: 'Subscription required' }, { status: 402 });
+    }
+
     const { videoId, browserFingerprint, clientIP } = await request.json();
     
     if (!videoId) {
@@ -78,8 +99,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           '--add-header', `Cookie-Enabled:${browserFingerprint.cookieEnabled}`,
           '--add-header', `Do-Not-Track:${browserFingerprint.doNotTrack}`,
           '--sleep-interval', '2', '--max-sleep-interval', '5', '--sleep-requests', '2',
-          '--extractor-args', 'youtube:player_client=ios,android,web', // Use multiple clients for real users
-          '--extractor-args', 'youtube:skip=dash,hls', // Skip problematic formats
+          '--extractor-args', 'youtube:player_client=ios,android,web',
+          '--extractor-args', 'youtube:skip=dash,hls',
           '--extractor-args', 'youtube:include_live_chat=false',
           '--extractor-args', 'youtube:formats=missing_pot',
           '--geo-bypass', '--geo-bypass-country', 'US',
@@ -99,8 +120,13 @@ export async function POST(request: Request): Promise<NextResponse> {
           '--referer', 'https://www.google.com/',
           '--add-header', 'Accept-Language:en-US,en;q=0.9',
           '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          '--add-header', 'Accept-Encoding:gzip, deflate, br',
+          '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
+          '--add-header', 'Cache-Control:no-cache',
+          '--add-header', 'Pragma:no-cache',
           '--add-header', 'X-Forwarded-For:192.168.1.100',
           '--add-header', 'X-Real-IP:192.168.1.100',
+          '--add-header', 'X-Client-IP:192.168.1.100',
           '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
           '--extractor-args', 'youtube:player_client=android',
           '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
@@ -143,11 +169,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         } else {
           // Try alternative approach with different format
           console.log('First attempt failed, trying alternative format...');
-          tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir, browserFingerprint)
+          tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP)
             .then(resolve)
             .catch((altError) => {
               console.log('Alternative format failed, trying third fallback...');
-              tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, browserFingerprint)
+              tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP)
                 .then(resolve)
                 .catch(reject);
             });
@@ -172,7 +198,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 }
 
 // Alternative format extraction function
-async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmpegDir: string, browserFingerprint?: any): Promise<NextResponse> {
+async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmpegDir: string, browserFingerprint?: any, clientIP?: string): Promise<NextResponse> {
   return new Promise<NextResponse>((resolve, reject) => {
     // Use browser fingerprint if available, otherwise use fallback
     const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
@@ -186,20 +212,27 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio/best',
+        '--format', 'bestaudio[height<=720]/bestaudio',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', browserFingerprint.userAgent,
         '--referer', 'https://www.youtube.com/',
         '--add-header', `Accept-Language:${browserFingerprint.language}`,
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', 'Accept-Encoding:gzip, deflate, br',
+        '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
+        '--add-header', 'Cache-Control:no-cache',
+        '--add-header', 'Pragma:no-cache',
+        '--add-header', `X-Forwarded-For:${clientIP || '192.168.1.200'}`,
+        '--add-header', `X-Real-IP:${clientIP || '192.168.1.200'}`,
+        '--add-header', `X-Client-IP:${clientIP || '192.168.1.200'}`,
         '--add-header', `Screen-Resolution:${browserFingerprint.screenResolution}`,
         '--add-header', `Platform:${browserFingerprint.platform}`,
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
-        '--extractor-args', 'youtube:player_client=android',
+        '--extractor-args', 'youtube:player_client=web',
         '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
-        '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+        '--geo-bypass', '--geo-bypass-country', 'US',
         '--check-formats'
       ];
     } else {
@@ -209,20 +242,25 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio/best',
+        '--format', 'bestaudio[height<=720]/bestaudio',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         '--referer', 'https://www.google.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', 'Accept-Encoding:gzip, deflate, br',
+        '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
+        '--add-header', 'Cache-Control:no-cache',
+        '--add-header', 'Pragma:no-cache',
         '--add-header', 'X-Forwarded-For:192.168.1.200',
         '--add-header', 'X-Real-IP:192.168.1.200',
+        '--add-header', 'X-Client-IP:192.168.1.200',
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
         '--extractor-args', 'youtube:player_client=web',
         '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
-        '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+        '--geo-bypass', '--geo-bypass-country', 'US',
         '--check-formats'
       ];
     }
@@ -256,10 +294,20 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
         const relativePath = `/audio/${path.basename(outputPath)}`;
         resolve(NextResponse.json({ audioUrl: relativePath }));
       } else {
-        reject(NextResponse.json({ 
-          error: 'Failed to extract audio with all available formats',
-          details: errorOutput
-        }, { status: 500 }));
+        // Check if it's a video unavailable error
+        if (errorOutput.includes('Video unavailable') || errorOutput.includes('This video is unavailable')) {
+          reject(NextResponse.json({ 
+            error: 'Video is unavailable or does not exist',
+            details: 'The requested video may be private, deleted, or restricted in your region.',
+            videoId: youtubeUrl.split('v=')[1]?.split('&')[0]
+          }, { status: 404 }));
+        } else {
+          reject(NextResponse.json({ 
+            error: 'Failed to extract audio with all available formats',
+            details: errorOutput,
+            videoId: youtubeUrl.split('v=')[1]?.split('&')[0]
+          }, { status: 500 }));
+        }
       }
     });
 
@@ -274,7 +322,7 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
 }
 
 // Third fallback extraction function - most aggressive approach
-async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDir: string, browserFingerprint?: any): Promise<NextResponse> {
+async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDir: string, browserFingerprint?: any, clientIP?: string): Promise<NextResponse> {
   return new Promise<NextResponse>((resolve, reject) => {
     // Use browser fingerprint if available, otherwise use fallback
     const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
@@ -288,12 +336,19 @@ async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDi
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio/best',
+        '--format', 'bestaudio[height<=720]/bestaudio',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', browserFingerprint.userAgent,
         '--referer', 'https://www.youtube.com/',
         '--add-header', `Accept-Language:${browserFingerprint.language}`,
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', 'Accept-Encoding:gzip, deflate, br',
+        '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
+        '--add-header', 'Cache-Control:no-cache',
+        '--add-header', 'Pragma:no-cache',
+        '--add-header', `X-Forwarded-For:${clientIP || '192.168.1.300'}`,
+        '--add-header', `X-Real-IP:${clientIP || '192.168.1.300'}`,
+        '--add-header', `X-Client-IP:${clientIP || '192.168.1.300'}`,
         '--add-header', `Screen-Resolution:${browserFingerprint.screenResolution}`,
         '--add-header', `Platform:${browserFingerprint.platform}`,
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
@@ -301,7 +356,7 @@ async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDi
         '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
-        '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+        '--geo-bypass', '--geo-bypass-country', 'US',
         '--check-formats'
       ];
     } else {
@@ -311,20 +366,25 @@ async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDi
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio/best',
+        '--format', 'bestaudio[height<=720]/bestaudio',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
         '--referer', 'https://www.google.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', 'Accept-Encoding:gzip, deflate, br',
+        '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
+        '--add-header', 'Cache-Control:no-cache',
+        '--add-header', 'Pragma:no-cache',
         '--add-header', 'X-Forwarded-For:192.168.1.300',
         '--add-header', 'X-Real-IP:192.168.1.300',
+        '--add-header', 'X-Client-IP:192.168.1.300',
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
         '--extractor-args', 'youtube:player_client=tv_embedded',
         '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
-        '--no-cookies', '--geo-bypass', '--geo-bypass-country', 'US',
+        '--geo-bypass', '--geo-bypass-country', 'US',
         '--check-formats'
       ];
     }
@@ -358,11 +418,22 @@ async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDi
         const relativePath = `/audio/${path.basename(outputPath)}`;
         resolve(NextResponse.json({ audioUrl: relativePath }));
       } else {
-        reject(NextResponse.json({ 
-          error: 'Failed to extract audio with all available methods. YouTube may be blocking automated requests.',
-          details: errorOutput,
-          suggestion: 'Try using a different video or check if the video is publicly available.'
-        }, { status: 500 }));
+        // Check if it's a video unavailable error
+        if (errorOutput.includes('Video unavailable') || errorOutput.includes('This video is unavailable')) {
+          reject(NextResponse.json({ 
+            error: 'Video is unavailable or does not exist',
+            details: 'The requested video may be private, deleted, or restricted in your region.',
+            videoId: youtubeUrl.split('v=')[1]?.split('&')[0],
+            suggestion: 'Please check the video URL and try again with a different video.'
+          }, { status: 404 }));
+        } else {
+          reject(NextResponse.json({ 
+            error: 'Failed to extract audio with all available methods. YouTube may be blocking automated requests.',
+            details: errorOutput,
+            videoId: youtubeUrl.split('v=')[1]?.split('&')[0],
+            suggestion: 'Try using a different video or check if the video is publicly available.'
+          }, { status: 500 }));
+        }
       }
     });
 

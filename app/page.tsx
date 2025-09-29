@@ -4,9 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { extractYouTubeId, isValidYouTubeUrl } from './utils/youtube';
 import { Globe, Play, Sparkles, Zap, CheckCircle, AlertCircle } from 'lucide-react';
+import { useUser, SignInButton } from '@clerk/nextjs';
 
 export default function Home() {
   const router = useRouter();
+  const { user, isSignedIn, isLoaded } = useUser();
   const [url, setUrl] = useState('');
   const [language, setLanguage] = useState('es');
   const [isLoading, setIsLoading] = useState(false);
@@ -16,7 +18,34 @@ export default function Home() {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [isActiveSubscriber, setIsActiveSubscriber] = useState<boolean>(false);
+  const [checkingSub, setCheckingSub] = useState<boolean>(false);
   const turnstileRef = useRef<any>(null);
+
+  // Fetch subscription on load when signed in
+  useEffect(() => {
+    const fetchSub = async () => {
+      if (!isSignedIn) {
+        setIsActiveSubscriber(false);
+        return;
+      }
+      setCheckingSub(true);
+      try {
+        const res = await fetch('/api/me/subscription');
+        if (res.ok) {
+          const data = await res.json();
+          setIsActiveSubscriber(Boolean(data?.is_active));
+        } else {
+          setIsActiveSubscriber(false);
+        }
+      } catch (e) {
+        setIsActiveSubscriber(false);
+      } finally {
+        setCheckingSub(false);
+      }
+    };
+    if (isLoaded) fetchSub();
+  }, [isLoaded, isSignedIn]);
 
   // Browser fingerprinting function
   const collectBrowserFingerprint = () => {
@@ -174,6 +203,15 @@ export default function Home() {
     e.preventDefault();
     setError(null);
     setVerificationError(null);
+
+    // Auth gating
+    if (!isSignedIn) {
+      return; // SignInButton handles modal
+    }
+    if (!isActiveSubscriber) {
+      router.push('/pricing#pricing-cards');
+      return;
+    }
 
     // Validate YouTube URL
     if (!isValidYouTubeUrl(url)) {
@@ -375,34 +413,66 @@ export default function Home() {
               </div>
 
               {/* Submit Button */}
-              <button
-                //disabled={true}
-                type="submit"
-                disabled={isLoading || !turnstileToken}
-                className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 
-                         text-white font-medium hover:from-slate-800 hover:to-slate-700
-                         focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
-                         disabled:opacity-50 disabled:cursor-not-allowed
-                         transition-all duration-300 transform hover:scale-105
-                         shadow-lg hover:shadow-xl"
-              >
-                {isLoading ? (
+              {!isSignedIn ? (
+                <SignInButton mode="modal">
+                  <button
+                    type="button"
+                    className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 
+                             text-white font-medium hover:from-slate-800 hover:to-slate-700
+                             focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
+                             transition-all duration-300 transform hover:scale-105
+                             shadow-lg hover:shadow-xl"
+                  >
+                    <span className="flex items-center justify-center space-x-3">
+                      <AlertCircle className="w-5 h-5" />
+                      <span>Sign in to translate videos</span>
+                    </span>
+                  </button>
+                </SignInButton>
+              ) : !isActiveSubscriber ? (
+                <button
+                  type="button"
+                  onClick={() => router.push('/pricing#pricing-cards')}
+                  className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 
+                           text-white font-medium hover:from-slate-800 hover:to-slate-700
+                           focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
+                           transition-all duration-300 transform hover:scale-105
+                           shadow-lg hover:shadow-xl"
+                >
                   <span className="flex items-center justify-center space-x-3">
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>{isVerifying ? 'Verifying...' : 'Processing...'}</span>
+                    <Sparkles className="w-5 h-5" />
+                    <span>Become a subscriber</span>
                   </span>
-                ) : !turnstileToken ? (
-                  <span className="flex items-center justify-center space-x-3">
-                    <AlertCircle className="w-5 h-5" />
-                    <span>Complete Verification</span>
-                  </span>
-                ) : (
-                  <span className="flex items-center justify-center space-x-3">
-                    <Play className="w-5 h-5" />
-                    <span>Translate Video</span>
-                  </span>
-                )}
-              </button>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={isLoading || !turnstileToken}
+                  className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 
+                           text-white font-medium hover:from-slate-800 hover:to-slate-700
+                           focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
+                           disabled:opacity-50 disabled:cursor-not-allowed
+                           transition-all duration-300 transform hover:scale-105
+                           shadow-lg hover:shadow-xl"
+                >
+                  {isLoading ? (
+                    <span className="flex items-center justify-center space-x-3">
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>{isVerifying ? 'Verifying...' : 'Processing...'}</span>
+                    </span>
+                  ) : !turnstileToken ? (
+                    <span className="flex items-center justify-center space-x-3">
+                      <AlertCircle className="w-5 h-5" />
+                      <span>Complete Verification</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center space-x-3">
+                      <Play className="w-5 h-5" />
+                      <span>Translate Video</span>
+                    </span>
+                  )}
+                </button>
+              )}
             </form>
 
             {/* Call to action */}

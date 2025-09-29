@@ -53,11 +53,37 @@ export async function POST(request: NextRequest) {
         const clerkUserId = subscription.metadata?.clerk_user_id;
         
         if (clerkUserId) {
-          const status = subscription.status === 'active' ? 'active' : 'inactive';
-          const planName = subscription.metadata?.plan_name || 'monthly';
+          let status = 'active';
+          let planName = 'monthly';
           
-          await updateUserSubscription(clerkUserId, status, planName.toLowerCase());
-          console.log(`Updated subscription for user ${clerkUserId} to ${status}`);
+          // Handle different subscription statuses
+          if (subscription.status === 'active') {
+            status = 'active';
+          } else if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
+            status = 'canceled';
+          } else if (subscription.status === 'past_due') {
+            status = 'past_due';
+          } else if (subscription.status === 'incomplete' || subscription.status === 'incomplete_expired') {
+            status = 'incomplete';
+          }
+          
+          // Determine plan name from subscription items
+          if (subscription.items?.data?.[0]?.price?.nickname) {
+            const priceNickname = subscription.items.data[0].price.nickname.toLowerCase();
+            if (priceNickname.includes('yearly') || priceNickname.includes('annual')) {
+              planName = 'annual';
+            } else if (priceNickname.includes('quarterly') || priceNickname.includes('3 month')) {
+              planName = 'quarterly';
+            } else {
+              planName = 'monthly';
+            }
+          } else {
+            // Fallback to metadata or default
+            planName = subscription.metadata?.plan_name?.toLowerCase() || 'monthly';
+          }
+          
+          await updateUserSubscription(clerkUserId, status, planName);
+          console.log(`Updated subscription for user ${clerkUserId} to ${status} (${planName})`);
         }
         break;
       }
@@ -101,6 +127,30 @@ export async function POST(request: NextRequest) {
             await updateUserSubscription(clerkUserId, 'past_due', 'monthly');
             console.log(`Payment failed for user ${clerkUserId}`);
           }
+        }
+        break;
+      }
+
+      case 'customer.subscription.schedule.created':
+      case 'customer.subscription.schedule.updated':
+      case 'customer.subscription.schedule.canceled': {
+        const schedule = event.data.object as any;
+        const clerkUserId = schedule.metadata?.clerk_user_id;
+        
+        if (clerkUserId) {
+          console.log(`Subscription schedule ${event.type} for user ${clerkUserId}`);
+          // These events indicate future changes, we'll handle them when they actually happen
+        }
+        break;
+      }
+
+      case 'invoice.upcoming': {
+        const invoice = event.data.object as Stripe.Invoice;
+        const subscription = (invoice as any).subscription;
+        
+        if (subscription) {
+          console.log(`Upcoming invoice for subscription ${subscription}`);
+          // This can be used to notify users about upcoming charges
         }
         break;
       }
