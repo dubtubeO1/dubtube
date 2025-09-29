@@ -131,15 +131,17 @@ export async function POST(request: NextRequest) {
         break;
       }
 
-      case 'customer.subscription.schedule.created':
-      case 'customer.subscription.schedule.updated':
-      case 'customer.subscription.schedule.canceled': {
-        const schedule = event.data.object as any;
-        const clerkUserId = schedule.metadata?.clerk_user_id;
+      // Correct event names for subscription schedules
+      case 'subscription_schedule.created':
+      case 'subscription_schedule.updated':
+      case 'subscription_schedule.canceled':
+      case 'subscription_schedule.released': {
+        const schedule = event.data.object as Stripe.SubscriptionSchedule;
+        const clerkUserId = schedule.metadata?.clerk_user_id as string | undefined;
         
         if (clerkUserId) {
           console.log(`Subscription schedule ${event.type} for user ${clerkUserId}`);
-          // These events indicate future changes, we'll handle them when they actually happen
+          // Future changes handled when they take effect via subscription.updated
         }
         break;
       }
@@ -150,7 +152,6 @@ export async function POST(request: NextRequest) {
         
         if (subscription) {
           console.log(`Upcoming invoice for subscription ${subscription}`);
-          // This can be used to notify users about upcoming charges
         }
         break;
       }
