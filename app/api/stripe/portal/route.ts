@@ -22,10 +22,13 @@ export async function POST(request: NextRequest) {
 
     // Create Stripe customer portal session
     try {
+      const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://dubtube.net';
+      const PORTAL_CONFIGURATION_ID = process.env.STRIPE_PORTAL_CONFIGURATION_ID;
+
       const session = await stripe.billingPortal.sessions.create({
         customer: userData.stripe_customer_id,
-        return_url: `https://dubtube.net/dashboard`,
-        configuration: 'bpc_1SCIMeHeI2MPXFVVS3vgow9Z', // Your portal configuration ID
+        return_url: `${BASE_URL}/dashboard`,
+        ...(PORTAL_CONFIGURATION_ID ? { configuration: PORTAL_CONFIGURATION_ID } : {})
       });
 
       return NextResponse.json({ url: session.url });
