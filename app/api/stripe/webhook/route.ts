@@ -131,16 +131,6 @@ export async function POST(request: NextRequest) {
         break;
       }
 
-      case 'invoice.upcoming': {
-        const invoice = event.data.object as Stripe.Invoice;
-        const subscription = (invoice as any).subscription;
-        
-        if (subscription) {
-          console.log(`Upcoming invoice for subscription ${subscription}`);
-        }
-        break;
-      }
-
       default:
         console.log(`Unhandled event type: ${event.type}`);
     }
