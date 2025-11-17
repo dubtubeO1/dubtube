@@ -5,6 +5,7 @@ import Stripe from 'stripe';
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
+// Stripe webhook handler for subscription events
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
