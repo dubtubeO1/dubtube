@@ -111,7 +111,30 @@ export async function POST(req: Request) {
 
     console.log('User deleted:', id)
 
-    // You can add logic here to handle user deletion in Supabase if needed
+    // Delete user from Supabase using admin client
+    try {
+      if (!supabaseAdmin) {
+        console.error('Supabase admin client not initialized')
+        return new Response('Server configuration error', { status: 500 })
+      }
+
+      // Delete user from Supabase by clerk_user_id
+      // CASCADE will automatically delete related records in subscriptions and usage_tracking
+      const { error } = await supabaseAdmin
+        .from('users')
+        .delete()
+        .eq('clerk_user_id', id)
+
+      if (error) {
+        console.error('Error deleting user from Supabase:', error)
+        return new Response('Database error', { status: 500 })
+      }
+
+      console.log('Successfully deleted user from Supabase:', id)
+    } catch (error) {
+      console.error('Error deleting user from Supabase:', error)
+      return new Response('Internal server error', { status: 500 })
+    }
   }
 
   return new Response('', { status: 200 })
