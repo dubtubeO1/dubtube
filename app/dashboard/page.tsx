@@ -11,23 +11,6 @@ export default function Dashboard() {
   const [userData, setUserData] = useState<UserData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    if (isLoaded && user) {
-      fetchUserData()
-    }
-  }, [isLoaded, user])
-
-  // Refresh data when returning from Stripe checkout
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    if (urlParams.get('success') === 'true') {
-      // Refresh user data after successful payment
-      setTimeout(() => {
-        fetchUserData()
-      }, 2000)
-    }
-  }, [])
-
   const fetchUserData = async () => {
     if (!user) return
 
@@ -41,23 +24,35 @@ export default function Dashboard() {
     }
   }
 
-  if (!isLoaded || loading) {
+  // Fetch user data when user is loaded
+  // Note: Authentication is enforced by middleware, so user will always be present here
+  useEffect(() => {
+    if (isLoaded && user) {
+      fetchUserData()
+    }
+  }, [isLoaded, user])
+
+  // Refresh data when returning from Stripe checkout
+  useEffect(() => {
+    if (!user) return
+    
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('success') === 'true') {
+      // Refresh user data after successful payment
+      setTimeout(() => {
+        fetchUserData()
+      }, 2000)
+    }
+  }, [user])
+
+  // Show loading while Clerk is loading or while fetching user data
+  // Note: Middleware ensures user is authenticated, so we only need to check loading states
+  if (!isLoaded || loading || !user) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-slate-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-slate-600">Loading dashboard...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-slate-700 mb-4">Please sign in</h1>
-          <p className="text-slate-600">You need to be signed in to view your dashboard.</p>
         </div>
       </div>
     )
