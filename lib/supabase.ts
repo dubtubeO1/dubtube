@@ -1,12 +1,47 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
+// Static client for backward compatibility (anon key only, no JWT)
 // Only create client if environment variables are available
 export const supabase = supabaseUrl && supabaseAnonKey 
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null
+
+/**
+ * Factory function to create a Supabase client with optional Clerk JWT token
+ * 
+ * @param jwt - Optional Clerk JWT token. When provided, it will be sent as Authorization: Bearer <token>
+ * @returns Supabase client instance, or null if environment variables are missing
+ * 
+ * Usage:
+ * - Authenticated: createSupabaseClient(jwtToken)
+ * - Guest/Anon: createSupabaseClient() or use the static `supabase` export
+ */
+export function createSupabaseClient(jwt?: string): SupabaseClient<Database> | null {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return null
+  }
+
+  const options: any = {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  }
+
+  // If JWT is provided, set it as Authorization header
+  if (jwt) {
+    options.global = {
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+      },
+    }
+  }
+
+  return createClient<Database>(supabaseUrl, supabaseAnonKey, options)
+}
 
 // Database types (we'll define these after creating the schema)
 export type Database = {

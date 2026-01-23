@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { createSupabaseClient, supabase } from './supabase'
 import { User } from '@clerk/nextjs/server'
 
 export interface UserData {
@@ -69,12 +69,26 @@ export async function syncUserToSupabase(clerkUser: User): Promise<UserData | nu
 
 /**
  * Get user data from Supabase using Clerk user ID
+ * 
+ * @param clerkUserId - The Clerk user ID
+ * @param jwt - Optional Clerk JWT token. When provided, enables RLS policies to work correctly
+ * @returns User data from Supabase, or null if not found or error occurs
  */
-export async function getUserFromSupabase(clerkUserId: string): Promise<UserData | null> {
+export async function getUserFromSupabase(clerkUserId: string, jwt?: string): Promise<UserData | null> {
   try {
+    // Create Supabase client with optional JWT token
+    const supabase = createSupabaseClient(jwt)
+    
     if (!supabase) {
       console.error('Supabase client not initialized')
       return null
+    }
+
+    // Debug: Log if JWT is present (for verification)
+    if (jwt) {
+      console.log('[getUserFromSupabase] JWT token provided, RLS should be active')
+    } else {
+      console.log('[getUserFromSupabase] No JWT token, using anon key (RLS may block)')
     }
 
     const { data: user, error } = await supabase

@@ -1,6 +1,6 @@
 'use client'
 
-import { useUser } from '@clerk/nextjs'
+import { useUser, useAuth } from '@clerk/nextjs'
 import { useEffect, useState } from 'react'
 import { getUserFromSupabase, UserData } from '@/lib/user-sync'
 import { supabase } from '@/lib/supabase'
@@ -8,6 +8,7 @@ import { User, CreditCard, BarChart3, Settings, Calendar, CheckCircle } from 'lu
 
 export default function Dashboard() {
   const { user, isLoaded } = useUser()
+  const { getToken } = useAuth()
   const [userData, setUserData] = useState<UserData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -15,7 +16,22 @@ export default function Dashboard() {
     if (!user) return
 
     try {
-      const data = await getUserFromSupabase(user.id)
+      // Retrieve Clerk JWT token for Supabase RLS
+      const jwt = await getToken({ template: 'supabase' })
+      
+      // TEMPORARY DEBUG: Verify JWT token is retrieved correctly
+      // TODO: Remove this console.log after RLS testing is complete
+      console.log("SUPABASE JWT:", jwt)
+      
+      if (jwt) {
+        console.log('[Dashboard] Clerk JWT token retrieved, passing to Supabase')
+      } else {
+        console.warn('[Dashboard] No JWT token available, RLS may not work correctly')
+      }
+
+      // Pass JWT token to enable RLS policies
+      // This uses createSupabaseClient(jwt) internally, NOT the static anon client
+      const data = await getUserFromSupabase(user.id, jwt || undefined)
       setUserData(data)
     } catch (error) {
       console.error('Error fetching user data:', error)
