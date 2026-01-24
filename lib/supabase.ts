@@ -3,12 +3,6 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-// Static client for backward compatibility (anon key only, no JWT)
-// Only create client if environment variables are available
-export const supabase = supabaseUrl && supabaseAnonKey 
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null
-
 /**
  * Factory function to create a Supabase client with optional Clerk JWT token
  * 
@@ -17,7 +11,7 @@ export const supabase = supabaseUrl && supabaseAnonKey
  * 
  * Usage:
  * - Authenticated: createSupabaseClient(jwtToken)
- * - Guest/Anon: createSupabaseClient() or use the static `supabase` export
+ * - Guest/Anon: createSupabaseClient()
  */
 export function createSupabaseClient(jwt?: string): SupabaseClient<Database> | null {
   if (!supabaseUrl || !supabaseAnonKey) {

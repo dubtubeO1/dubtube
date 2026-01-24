@@ -3,7 +3,6 @@
 import { useUser, useAuth } from '@clerk/nextjs'
 import { useEffect, useState } from 'react'
 import { getUserFromSupabase, UserData } from '@/lib/user-sync'
-import { supabase } from '@/lib/supabase'
 import { User, CreditCard, BarChart3, Settings, Calendar, CheckCircle } from 'lucide-react'
 
 export default function Dashboard() {
@@ -18,19 +17,8 @@ export default function Dashboard() {
     try {
       // Retrieve Clerk JWT token for Supabase RLS
       const jwt = await getToken({ template: 'supabase' })
-      
-      // TEMPORARY DEBUG: Verify JWT token is retrieved correctly
-      // TODO: Remove this console.log after RLS testing is complete
-      console.log("SUPABASE JWT:", jwt)
-      
-      if (jwt) {
-        console.log('[Dashboard] Clerk JWT token retrieved, passing to Supabase')
-      } else {
-        console.warn('[Dashboard] No JWT token available, RLS may not work correctly')
-      }
 
       // Pass JWT token to enable RLS policies
-      // This uses createSupabaseClient(jwt) internally, NOT the static anon client
       const data = await getUserFromSupabase(user.id, jwt || undefined)
       setUserData(data)
     } catch (error) {
@@ -153,16 +141,12 @@ export default function Dashboard() {
               </div>
               <button 
                 onClick={async () => {
-                  console.log('Manage Subscription clicked');
-                  console.log('User data:', userData);
-                  
                   if (!userData?.stripe_customer_id) {
                     alert('No Stripe customer found. Please contact support.');
                     return;
                   }
                   
                   try {
-                    console.log('Sending request to /api/stripe/portal');
                     const response = await fetch('/api/stripe/portal', {
                       method: 'POST',
                       headers: {
@@ -171,12 +155,9 @@ export default function Dashboard() {
                       body: JSON.stringify({ userData }),
                     });
                     
-                    console.log('Response status:', response.status);
                     const result = await response.json();
-                    console.log('Response data:', result);
                     
                     if (result.url) {
-                      console.log('Redirecting to:', result.url);
                       window.location.href = result.url;
                     } else {
                       console.error('No URL in response:', result);

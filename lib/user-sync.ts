@@ -1,4 +1,5 @@
-import { createSupabaseClient, supabase } from './supabase'
+import { createSupabaseClient } from './supabase'
+import { supabaseAdmin } from './supabaseAdmin'
 import { User } from '@clerk/nextjs/server'
 
 export interface UserData {
@@ -18,8 +19,8 @@ export interface UserData {
  */
 export async function syncUserToSupabase(clerkUser: User): Promise<UserData | null> {
   try {
-    if (!supabase) {
-      console.error('Supabase client not initialized')
+    if (!supabaseAdmin) {
+      console.error('Supabase admin client not initialized')
       return null
     }
 
@@ -31,7 +32,7 @@ export async function syncUserToSupabase(clerkUser: User): Promise<UserData | nu
     }
 
     // Check if user already exists
-    const { data: existingUser } = await supabase
+    const { data: existingUser } = await supabaseAdmin
       .from('users')
       .select('*')
       .eq('clerk_user_id', clerkUser.id)
@@ -43,7 +44,7 @@ export async function syncUserToSupabase(clerkUser: User): Promise<UserData | nu
     }
 
     // Create new user in Supabase
-    const { data: newUser, error } = await supabase
+    const { data: newUser, error } = await supabaseAdmin
       .from('users')
       .insert({
         clerk_user_id: clerkUser.id,
@@ -84,13 +85,6 @@ export async function getUserFromSupabase(clerkUserId: string, jwt?: string): Pr
       return null
     }
 
-    // Debug: Log if JWT is present (for verification)
-    if (jwt) {
-      console.log('[getUserFromSupabase] JWT token provided, RLS should be active')
-    } else {
-      console.log('[getUserFromSupabase] No JWT token, using anon key (RLS may block)')
-    }
-
     const { data: user, error } = await supabase
       .from('users')
       .select('*')
@@ -119,8 +113,8 @@ export async function updateUserSubscription(
   stripeCustomerId?: string
 ): Promise<boolean> {
   try {
-    if (!supabase) {
-      console.error('Supabase client not initialized')
+    if (!supabaseAdmin) {
+      console.error('Supabase admin client not initialized')
       return false
     }
 
@@ -134,7 +128,7 @@ export async function updateUserSubscription(
       updateData.stripe_customer_id = stripeCustomerId
     }
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from('users')
       .update(updateData)
       .eq('clerk_user_id', clerkUserId)
@@ -151,46 +145,3 @@ export async function updateUserSubscription(
   }
 }
 
-/**
- * Track video processing usage
- */
-export async function trackVideoUsage(
-  clerkUserId: string, 
-  durationSeconds: number
-): Promise<boolean> {
-  try {
-    if (!supabase) {
-      console.error('Supabase client not initialized')
-      return false
-    }
-
-    // Get user ID from Supabase
-    const user = await getUserFromSupabase(clerkUserId)
-    if (!user) {
-      console.error('User not found for usage tracking:', clerkUserId)
-      return false
-    }
-
-    // Update or insert usage tracking
-    const { error } = await supabase
-      .from('usage_tracking')
-      .upsert({
-        user_id: user.id,
-        videos_processed: 1,
-        total_duration_seconds: durationSeconds,
-        last_reset_date: new Date().toISOString().split('T')[0]
-      }, {
-        onConflict: 'user_id'
-      })
-
-    if (error) {
-      console.error('Error tracking video usage:', error)
-      return false
-    }
-
-    return true
-  } catch (error) {
-    console.error('Error in trackVideoUsage:', error)
-    return false
-  }
-}
