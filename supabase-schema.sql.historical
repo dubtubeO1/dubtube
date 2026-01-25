@@ -1,3 +1,38 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ⚠️  HISTORICAL FILE - DO NOT APPLY TO PRODUCTION  ⚠️
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- This file is kept for HISTORICAL REFERENCE ONLY.
+-- 
+-- ⛔  MUST NOT BE APPLIED:
+--    - This file does NOT reflect the current production schema
+--    - Applying this file would BREAK Row Level Security (RLS)
+--    - Applying this file would MISS required columns
+--
+-- 📊 SOURCE OF TRUTH:
+--    The Supabase Dashboard is the SINGLE SOURCE OF TRUTH for:
+--    - Database schema
+--    - RLS policies
+--    - Table structures
+--
+-- 🔴 KNOWN DIFFERENCES FROM PRODUCTION:
+--
+--    1. RLS POLICIES:
+--       - This file uses: current_setting('app.current_user_id', true)
+--       - Production uses: (auth.jwt()->>'sub') = clerk_user_id
+--       - Legacy pattern does NOT work with Clerk JWTs
+--
+--    2. MISSING COLUMN:
+--       - This file's users table does NOT include: stripe_customer_id TEXT
+--       - Production users table HAS this column
+--
+-- 📝 FOR NEW DEVELOPERS:
+--    - Do NOT copy/paste this file into Supabase SQL Editor
+--    - Check Supabase Dashboard for current schema
+--    - RLS policies are managed directly in Supabase Dashboard
+--
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- DubTube Database Schema for Supabase
 -- Run this in your Supabase SQL Editor
 

@@ -1,5 +1,14 @@
 # Supabase Setup Guide for DubTube
 
+## ⚠️ Important: Source of Truth
+
+**The Supabase Dashboard is the SINGLE SOURCE OF TRUTH** for:
+- Database schema
+- RLS (Row Level Security) policies
+- Table structures and columns
+
+**SQL files in this repository (`supabase-schema.sql.historical`) are HISTORICAL REFERENCES ONLY** and must NOT be applied to production. They do not reflect the current production state.
+
 ## 🚀 Step-by-Step Setup Instructions
 
 ### 1. Create Supabase Project
@@ -24,10 +33,12 @@
 
 ### 3. Set Up Database Schema
 
-1. Go to **SQL Editor** in your Supabase dashboard
-2. Click "New Query"
-3. Copy and paste the contents of `supabase-schema.sql`
-4. Click "Run" to execute the schema
+**⚠️ DO NOT use the SQL file in this repository.**
+
+1. Go to **Table Editor** in your Supabase dashboard
+2. Create tables manually OR use the Supabase Dashboard SQL Editor with current schema
+3. **For production setup**: Check the Supabase Dashboard for the current schema
+4. **For reference only**: See `supabase-schema.sql.historical` (this file is outdated and must NOT be applied)
 
 ### 4. Configure Environment Variables
 
@@ -66,7 +77,8 @@ CLERK_WEBHOOK_SECRET=whsec_your_webhook_secret_here
 
 ### `users` table
 - Stores user information linked to Clerk
-- Fields: id, clerk_user_id, email, subscription_status, plan_name, created_at, updated_at
+- Fields: id, clerk_user_id, email, subscription_status, plan_name, stripe_customer_id, created_at, updated_at
+- **Note**: Check Supabase Dashboard for current schema (includes `stripe_customer_id` column)
 
 ### `subscriptions` table
 - Stores subscription and billing information
@@ -81,6 +93,8 @@ CLERK_WEBHOOK_SECRET=whsec_your_webhook_secret_here
 - **Row Level Security (RLS)** enabled on all tables
 - Users can only access their own data
 - Secure policies prevent unauthorized access
+- **RLS policies use Clerk JWT**: `(auth.jwt()->>'sub') = clerk_user_id`
+- **Note**: RLS policies are managed directly in Supabase Dashboard, not via SQL files
 
 ## 🎯 Next Steps
 
