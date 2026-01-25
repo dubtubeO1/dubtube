@@ -19,34 +19,35 @@ export async function POST(request: NextRequest) {
 
     const plan = PLAN_CONFIGS[planType as keyof typeof PLAN_CONFIGS];
     
+    // Validate Price ID exists
+    if (!plan.priceId) {
+      console.error(`Missing Price ID for plan: ${planType}`);
+      return NextResponse.json(
+        { error: 'Subscription plan not configured' },
+        { status: 500 }
+      );
+    }
+    
     // Ensure user exists in Supabase
     const user = await currentUser();
     if (user) {
       await syncUserToSupabase(user);
     }
 
-    // Create Stripe checkout session
+    const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://dubtube.net';
+
+    // Create Stripe checkout session with existing Price ID
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
         {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: `DubTube ${plan.name} Plan`,
-              description: `Unlimited video translation for ${plan.period}`,
-            },
-            unit_amount: Math.round(plan.price * 100), // Convert to cents
-            recurring: planType === 'monthly' ? {
-              interval: 'month',
-            } : undefined,
-          },
+          price: plan.priceId,
           quantity: 1,
         },
       ],
-      mode: planType === 'monthly' ? 'subscription' : 'payment',
-      success_url: `https://dubtube.net/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `https://dubtube.net/pricing?canceled=true`,
+      mode: 'subscription', // All plans are subscriptions
+      success_url: `${BASE_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${BASE_URL}/pricing?canceled=true`,
       customer_email: user?.emailAddresses[0]?.emailAddress,
       metadata: {
         clerk_user_id: userId,

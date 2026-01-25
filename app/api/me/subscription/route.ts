@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+/**
+ * Get user subscription status
+ * Checks both users table and subscriptions table
+ * Respects cancel_at_period_end and current_period_end
+ */
 export async function GET(): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -14,26 +19,57 @@ export async function GET(): Promise<NextResponse> {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
-    const { data, error } = await supabaseAdmin
+    // Get user data
+    const { data: userData, error: userError } = await supabaseAdmin
       .from('users')
-      .select('subscription_status, plan_name, stripe_customer_id')
+      .select('id, subscription_status, plan_name, stripe_customer_id')
       .eq('clerk_user_id', userId)
       .single();
 
-    if (error) {
+    if (userError || !userData) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const status = data?.subscription_status || null;
-    const isActive = status === 'active' || status === 'legacy';
+    // Get subscription details if user has stripe_customer_id
+    let subscriptionData = null;
+    if (userData.stripe_customer_id) {
+      const { data: subscription } = await supabaseAdmin
+        .from('subscriptions')
+        .select('status, plan_name, current_period_end, stripe_subscription_id')
+        .eq('user_id', userData.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      subscriptionData = subscription;
+    }
+
+    const status = userData.subscription_status || null;
+    const now = new Date();
+    
+    // Determine if subscription is active
+    // Must be 'active' status AND current_period_end must not have passed
+    let isActive = false;
+    if (status === 'active' || status === 'legacy') {
+      if (subscriptionData?.current_period_end) {
+        const periodEnd = new Date(subscriptionData.current_period_end);
+        isActive = periodEnd > now; // Access until period end
+      } else {
+        // Fallback: if no subscription record, trust users table status
+        isActive = true;
+      }
+    }
 
     return NextResponse.json({
       subscription_status: status,
-      plan_name: data?.plan_name || null,
-      stripe_customer_id: data?.stripe_customer_id || null,
+      plan_name: userData.plan_name || null,
+      stripe_customer_id: userData.stripe_customer_id || null,
       is_active: isActive,
+      current_period_end: subscriptionData?.current_period_end || null,
+      stripe_subscription_id: subscriptionData?.stripe_subscription_id || null,
     });
   } catch (err) {
+    console.error('Error fetching subscription:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

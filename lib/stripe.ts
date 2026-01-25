@@ -11,42 +11,35 @@ export const getStripe = () => {
   return loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY!);
 };
 
-// Product and price mappings
-export const STRIPE_PRODUCTS = {
-  MONTHLY: 'prod_T8HGzUNkvt6lrP',
-  QUARTERLY: 'prod_T8HI41vqugy9hK',
-  ANNUAL: 'prod_T8HKpgcXiwukHd',
-} as const;
-
-export const STRIPE_PAYMENT_LINKS = {
-  MONTHLY: 'https://buy.stripe.com/test_cNibJ12X17XI9OaeMo8IU02',
-  QUARTERLY: 'https://buy.stripe.com/test_28E28r7dh5PAe4qfQs8IU01',
-  ANNUAL: 'https://buy.stripe.com/test_5kQ6oH1SXa5QaSe5bO8IU00',
+// Stripe Price IDs from environment variables (source of truth)
+export const STRIPE_PRICE_IDS = {
+  MONTHLY: process.env.STRIPE_PRICE_MONTHLY!,
+  QUARTERLY: process.env.STRIPE_PRICE_QUARTERLY!,
+  ANNUAL: process.env.STRIPE_PRICE_ANNUAL!,
 } as const;
 
 // Plan configurations
 export const PLAN_CONFIGS = {
   monthly: {
     name: 'Monthly',
-    price: 14.99,
     period: 'month',
-    productId: STRIPE_PRODUCTS.MONTHLY,
-    paymentLink: STRIPE_PAYMENT_LINKS.MONTHLY,
+    priceId: STRIPE_PRICE_IDS.MONTHLY,
   },
   quarterly: {
     name: '3 Months',
-    price: 39.99,
     period: '3 months',
-    productId: STRIPE_PRODUCTS.QUARTERLY,
-    paymentLink: STRIPE_PAYMENT_LINKS.QUARTERLY,
+    priceId: STRIPE_PRICE_IDS.QUARTERLY,
   },
   annual: {
     name: '12 Months',
-    price: 119.99,
     period: '12 months',
-    productId: STRIPE_PRODUCTS.ANNUAL,
-    paymentLink: STRIPE_PAYMENT_LINKS.ANNUAL,
+    priceId: STRIPE_PRICE_IDS.ANNUAL,
   },
 } as const;
 
 export type PlanType = keyof typeof PLAN_CONFIGS;
+
+// Validate that all Price IDs are configured
+if (!STRIPE_PRICE_IDS.MONTHLY || !STRIPE_PRICE_IDS.QUARTERLY || !STRIPE_PRICE_IDS.ANNUAL) {
+  throw new Error('Missing required Stripe Price ID environment variables');
+}

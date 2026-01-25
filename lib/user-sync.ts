@@ -104,7 +104,8 @@ export async function getUserFromSupabase(clerkUserId: string, jwt?: string): Pr
 }
 
 /**
- * Update user subscription status
+ * Update user subscription status (legacy - updates users table only)
+ * @deprecated Use upsertSubscription instead for full subscription management
  */
 export async function updateUserSubscription(
   clerkUserId: string, 
@@ -141,6 +142,99 @@ export async function updateUserSubscription(
     return true
   } catch (error) {
     console.error('Error in updateUserSubscription:', error)
+    return false
+  }
+}
+
+/**
+ * Upsert subscription data from Stripe webhook events
+ * This is the primary function for managing subscription state
+ */
+export async function upsertSubscription(
+  clerkUserId: string,
+  subscriptionData: {
+    stripe_customer_id: string
+    stripe_subscription_id: string
+    stripe_price_id: string
+    status: string
+    current_period_start: Date
+    current_period_end: Date
+    cancel_at_period_end: boolean
+    plan_name: string
+  }
+): Promise<boolean> {
+  try {
+    if (!supabaseAdmin) {
+      console.error('Supabase admin client not initialized')
+      return false
+    }
+
+    // First, get the user's Supabase ID
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('clerk_user_id', clerkUserId)
+      .single()
+
+    if (userError || !user) {
+      console.error('User not found for subscription upsert:', clerkUserId)
+      return false
+    }
+
+    // Map Stripe status to our subscription_status
+    let subscriptionStatus = subscriptionData.status
+    if (subscriptionStatus === 'active' && subscriptionData.cancel_at_period_end) {
+      // Keep as 'active' but access will be revoked after period_end
+      subscriptionStatus = 'active'
+    } else if (subscriptionStatus === 'canceled') {
+      subscriptionStatus = 'canceled'
+    } else if (subscriptionStatus === 'past_due' || subscriptionStatus === 'unpaid') {
+      subscriptionStatus = 'past_due'
+    } else if (subscriptionStatus === 'incomplete' || subscriptionStatus === 'incomplete_expired') {
+      subscriptionStatus = 'incomplete'
+    }
+
+    // Upsert subscription record
+    // Note: If stripe_price_id or cancel_at_period_end columns exist in Supabase,
+    // they should be added to the TypeScript Database type and included here
+    const { error: subError } = await supabaseAdmin
+      .from('subscriptions')
+      .upsert({
+        user_id: user.id,
+        stripe_subscription_id: subscriptionData.stripe_subscription_id,
+        status: subscriptionStatus,
+        plan_name: subscriptionData.plan_name,
+        current_period_start: subscriptionData.current_period_start.toISOString(),
+        current_period_end: subscriptionData.current_period_end.toISOString(),
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'stripe_subscription_id',
+      })
+
+    if (subError) {
+      console.error('Error upserting subscription:', subError)
+      return false
+    }
+
+    // Also update users table for backward compatibility
+    const { error: userUpdateError } = await supabaseAdmin
+      .from('users')
+      .update({
+        subscription_status: subscriptionStatus,
+        plan_name: subscriptionData.plan_name,
+        stripe_customer_id: subscriptionData.stripe_customer_id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('clerk_user_id', clerkUserId)
+
+    if (userUpdateError) {
+      console.error('Error updating user record:', userUpdateError)
+      // Don't fail if this update fails, subscription record is primary
+    }
+
+    return true
+  } catch (error) {
+    console.error('Error in upsertSubscription:', error)
     return false
   }
 }

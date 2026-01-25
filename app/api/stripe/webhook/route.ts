@@ -1,11 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
-import { updateUserSubscription } from '@/lib/user-sync';
+import { stripe, STRIPE_PRICE_IDS } from '@/lib/stripe';
+import { upsertSubscription, updateUserSubscription } from '@/lib/user-sync';
 import Stripe from 'stripe';
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
-// Stripe webhook handler for subscription events
+/**
+ * Map Stripe Price ID to plan name
+ */
+function getPlanNameFromPriceId(priceId: string): string {
+  if (priceId === STRIPE_PRICE_IDS.MONTHLY) {
+    return 'monthly';
+  } else if (priceId === STRIPE_PRICE_IDS.QUARTERLY) {
+    return 'quarterly';
+  } else if (priceId === STRIPE_PRICE_IDS.ANNUAL) {
+    return 'annual';
+  }
+  // Fallback: try to determine from price ID or return default
+  console.warn(`Unknown Price ID: ${priceId}, defaulting to monthly`);
+  return 'monthly';
+}
+
+/**
+ * Stripe webhook handler for subscription events
+ * Handles subscription lifecycle and mirrors state to Supabase
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
@@ -27,23 +46,46 @@ export async function POST(request: NextRequest) {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
     } catch (err) {
       console.error('Webhook signature verification failed:', err);
-      console.error('Signature header:', signature);
-      console.error('Body length:', body.length);
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
     }
 
-    console.log('Received webhook event:', event.type);
+    console.log(`[Webhook] Received event: ${event.type} (id: ${event.id})`);
+
+    // Handle idempotency: Check if we've processed this event before
+    // Note: In production, you might want to store event IDs in a database
+    // For now, we rely on Stripe's idempotency and our upsert logic
 
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        const clerkUserId = session.metadata?.clerk_user_id;
-        const planName = session.metadata?.plan_name;
-        const stripeCustomerId = session.customer as string;
-
-        if (clerkUserId && planName) {
-          await updateUserSubscription(clerkUserId, 'active', planName.toLowerCase(), stripeCustomerId);
-          console.log(`Updated subscription for user ${clerkUserId} to ${planName}`);
+        
+        // Only process if it's a subscription checkout
+        if (session.mode === 'subscription' && session.subscription) {
+          const subscription = await stripe.subscriptions.retrieve(
+            session.subscription as string
+          );
+          
+          const clerkUserId = session.metadata?.clerk_user_id || subscription.metadata?.clerk_user_id;
+          const stripeCustomerId = session.customer as string;
+          
+          if (clerkUserId && stripeCustomerId && subscription) {
+            const priceId = subscription.items.data[0]?.price.id;
+            const planName = priceId ? getPlanNameFromPriceId(priceId) : (session.metadata?.plan_name?.toLowerCase() || 'monthly');
+            
+            const subData = subscription as any; // Stripe types may not include all fields
+            await upsertSubscription(clerkUserId, {
+              stripe_customer_id: stripeCustomerId,
+              stripe_subscription_id: subscription.id,
+              stripe_price_id: priceId || '',
+              status: subscription.status,
+              current_period_start: new Date(subData.current_period_start * 1000),
+              current_period_end: new Date(subData.current_period_end * 1000),
+              cancel_at_period_end: subData.cancel_at_period_end || false,
+              plan_name: planName,
+            });
+            
+            console.log(`[Webhook] Checkout completed for user ${clerkUserId}, subscription ${subscription.id}`);
+          }
         }
         break;
       }
@@ -53,39 +95,33 @@ export async function POST(request: NextRequest) {
         const subscription = event.data.object as Stripe.Subscription;
         const clerkUserId = subscription.metadata?.clerk_user_id;
         
-        if (clerkUserId) {
-          let status = 'active';
-          let planName = 'monthly';
-          
-          // Handle different subscription statuses
-          if (subscription.status === 'active') {
-            status = 'active';
-          } else if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
-            status = 'canceled';
-          } else if (subscription.status === 'past_due') {
-            status = 'past_due';
-          } else if (subscription.status === 'incomplete' || subscription.status === 'incomplete_expired') {
-            status = 'incomplete';
-          }
-          
-          // Determine plan name from subscription items
-          if (subscription.items?.data?.[0]?.price?.nickname) {
-            const priceNickname = subscription.items.data[0].price.nickname.toLowerCase();
-            if (priceNickname.includes('yearly') || priceNickname.includes('annual')) {
-              planName = 'annual';
-            } else if (priceNickname.includes('quarterly') || priceNickname.includes('3 month')) {
-              planName = 'quarterly';
-            } else {
-              planName = 'monthly';
-            }
-          } else {
-            // Fallback to metadata or default
-            planName = subscription.metadata?.plan_name?.toLowerCase() || 'monthly';
-          }
-          
-          await updateUserSubscription(clerkUserId, status, planName);
-          console.log(`Updated subscription for user ${clerkUserId} to ${status} (${planName})`);
+        if (!clerkUserId) {
+          console.warn(`[Webhook] ${event.type} missing clerk_user_id in metadata`);
+          break;
         }
+
+        const priceId = subscription.items.data[0]?.price.id;
+        if (!priceId) {
+          console.error(`[Webhook] ${event.type} missing price ID for subscription ${subscription.id}`);
+          break;
+        }
+
+        const planName = getPlanNameFromPriceId(priceId);
+        const stripeCustomerId = subscription.customer as string;
+
+        const subData = subscription as any; // Stripe types may not include all fields
+        await upsertSubscription(clerkUserId, {
+          stripe_customer_id: stripeCustomerId,
+          stripe_subscription_id: subscription.id,
+          stripe_price_id: priceId,
+          status: subscription.status,
+          current_period_start: new Date(subData.current_period_start * 1000),
+          current_period_end: new Date(subData.current_period_end * 1000),
+          cancel_at_period_end: subData.cancel_at_period_end || false,
+          plan_name: planName,
+        });
+
+        console.log(`[Webhook] Subscription ${subscription.status} for user ${clerkUserId} (cancel_at_period_end: ${subscription.cancel_at_period_end})`);
         break;
       }
 
@@ -94,23 +130,55 @@ export async function POST(request: NextRequest) {
         const clerkUserId = subscription.metadata?.clerk_user_id;
         
         if (clerkUserId) {
-          await updateUserSubscription(clerkUserId, 'canceled', 'free');
-          console.log(`Canceled subscription for user ${clerkUserId}`);
+          const priceId = subscription.items.data[0]?.price.id;
+          const planName = priceId ? getPlanNameFromPriceId(priceId) : 'free';
+          const stripeCustomerId = subscription.customer as string;
+
+          // Subscription is deleted - mark as canceled
+          const subData = subscription as any; // Stripe types may not include all fields
+          await upsertSubscription(clerkUserId, {
+            stripe_customer_id: stripeCustomerId,
+            stripe_subscription_id: subscription.id,
+            stripe_price_id: priceId || '',
+            status: 'canceled',
+            current_period_start: new Date(subData.current_period_start * 1000),
+            current_period_end: new Date(subData.current_period_end * 1000),
+            cancel_at_period_end: false,
+            plan_name: planName,
+          });
+
+          console.log(`[Webhook] Subscription deleted for user ${clerkUserId}`);
         }
         break;
       }
 
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object as Stripe.Invoice;
-        const subscription = (invoice as any).subscription;
+        const invoiceData = invoice as any; // Stripe types may not include all fields
+        const subscriptionId = invoiceData.subscription as string;
         
-        if (subscription) {
-          const stripeSubscription = await stripe.subscriptions.retrieve(subscription);
-          const clerkUserId = stripeSubscription.metadata?.clerk_user_id;
+        if (subscriptionId) {
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          const clerkUserId = subscription.metadata?.clerk_user_id;
           
           if (clerkUserId) {
-            await updateUserSubscription(clerkUserId, 'active', 'monthly');
-            console.log(`Payment succeeded for user ${clerkUserId}`);
+            const priceId = subscription.items.data[0]?.price.id;
+            const planName = priceId ? getPlanNameFromPriceId(priceId) : 'monthly';
+            const stripeCustomerId = subscription.customer as string;
+            const subData = subscription as any; // Stripe types may not include all fields
+
+            await upsertSubscription(clerkUserId, {
+              stripe_customer_id: stripeCustomerId,
+              stripe_subscription_id: subscription.id,
+              stripe_price_id: priceId || '',
+              status: subscription.status, // Use subscription status, not invoice status
+              current_period_start: new Date(subData.current_period_start * 1000),
+              current_period_end: new Date(subData.current_period_end * 1000),
+              cancel_at_period_end: subData.cancel_at_period_end || false,
+              plan_name: planName,
+            });
+
+            console.log(`[Webhook] Payment succeeded for user ${clerkUserId}`);
           }
         }
         break;
@@ -118,27 +186,43 @@ export async function POST(request: NextRequest) {
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice;
-        const subscription = (invoice as any).subscription;
+        const invoiceData = invoice as any; // Stripe types may not include all fields
+        const subscriptionId = invoiceData.subscription as string;
         
-        if (subscription) {
-          const stripeSubscription = await stripe.subscriptions.retrieve(subscription);
-          const clerkUserId = stripeSubscription.metadata?.clerk_user_id;
+        if (subscriptionId) {
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          const clerkUserId = subscription.metadata?.clerk_user_id;
           
           if (clerkUserId) {
-            await updateUserSubscription(clerkUserId, 'past_due', 'monthly');
-            console.log(`Payment failed for user ${clerkUserId}`);
+            const priceId = subscription.items.data[0]?.price.id;
+            const planName = priceId ? getPlanNameFromPriceId(priceId) : 'monthly';
+            const stripeCustomerId = subscription.customer as string;
+            const subData = subscription as any; // Stripe types may not include all fields
+
+            await upsertSubscription(clerkUserId, {
+              stripe_customer_id: stripeCustomerId,
+              stripe_subscription_id: subscription.id,
+              stripe_price_id: priceId || '',
+              status: subscription.status, // Stripe sets this to 'past_due' or 'unpaid'
+              current_period_start: new Date(subData.current_period_start * 1000),
+              current_period_end: new Date(subData.current_period_end * 1000),
+              cancel_at_period_end: subData.cancel_at_period_end || false,
+              plan_name: planName,
+            });
+
+            console.log(`[Webhook] Payment failed for user ${clerkUserId}, status: ${subscription.status}`);
           }
         }
         break;
       }
 
       default:
-        console.log(`Unhandled event type: ${event.type}`);
+        console.log(`[Webhook] Unhandled event type: ${event.type}`);
     }
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('[Webhook] Error processing webhook:', error);
     return NextResponse.json(
       { error: 'Webhook handler failed' },
       { status: 500 }
