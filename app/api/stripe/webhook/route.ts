@@ -26,6 +26,7 @@ function getPlanNameFromPriceId(priceId: string): string {
  * Handles subscription lifecycle and mirrors state to Supabase
  */
 export async function POST(request: NextRequest) {
+  console.log("🔔 Stripe webhook received");
   try {
     const body = await request.text();
     const signature = request.headers.get('stripe-signature');
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
     }
 
+    console.log("📦 Stripe event type:", event.type);
     console.log(`[Webhook] Received event: ${event.type} (id: ${event.id})`);
 
     // Handle idempotency: Check if we've processed this event before
@@ -69,9 +71,11 @@ export async function POST(request: NextRequest) {
           const stripeCustomerId = session.customer as string;
           
           if (clerkUserId && stripeCustomerId && subscription) {
+            console.log("🔍 Resolving user for subscription");
             const priceId = subscription.items.data[0]?.price.id;
             const planName = priceId ? getPlanNameFromPriceId(priceId) : (session.metadata?.plan_name?.toLowerCase() || 'monthly');
             
+            console.log("⬆️ Calling upsertSubscription");
             const subData = subscription as any; // Stripe types may not include all fields
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
@@ -85,23 +89,36 @@ export async function POST(request: NextRequest) {
             });
             
             console.log(`[Webhook] Checkout completed for user ${clerkUserId}, subscription ${subscription.id}`);
+          } else {
+            console.warn("⛔ Early return: missing clerkUserId, stripeCustomerId, or subscription");
           }
+        } else {
+          console.warn("⛔ Early return: session is not subscription mode or missing subscription");
         }
         break;
       }
 
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
+        if (event.type === 'customer.subscription.created') {
+          console.log("🧾 subscription.created received");
+        }
         const subscription = event.data.object as Stripe.Subscription;
+        console.log("🆔 Stripe subscription ID:", subscription.id);
+        console.log("👤 Stripe customer ID:", subscription.customer);
+        console.log("🏷 subscription.metadata:", subscription.metadata);
         const clerkUserId = subscription.metadata?.clerk_user_id;
         
         if (!clerkUserId) {
+          console.warn("⛔ Early return: missing clerk_user_id in metadata");
           console.warn(`[Webhook] ${event.type} missing clerk_user_id in metadata`);
           break;
         }
 
+        console.log("🔍 Resolving user for subscription");
         const priceId = subscription.items.data[0]?.price.id;
         if (!priceId) {
+          console.warn("⛔ Early return: missing price ID for subscription");
           console.error(`[Webhook] ${event.type} missing price ID for subscription ${subscription.id}`);
           break;
         }
@@ -109,6 +126,7 @@ export async function POST(request: NextRequest) {
         const planName = getPlanNameFromPriceId(priceId);
         const stripeCustomerId = subscription.customer as string;
 
+        console.log("⬆️ Calling upsertSubscription");
         const subData = subscription as any; // Stripe types may not include all fields
         await upsertSubscription(clerkUserId, {
           stripe_customer_id: stripeCustomerId,
@@ -130,10 +148,12 @@ export async function POST(request: NextRequest) {
         const clerkUserId = subscription.metadata?.clerk_user_id;
         
         if (clerkUserId) {
+          console.log("🔍 Resolving user for subscription");
           const priceId = subscription.items.data[0]?.price.id;
           const planName = priceId ? getPlanNameFromPriceId(priceId) : 'free';
           const stripeCustomerId = subscription.customer as string;
 
+          console.log("⬆️ Calling upsertSubscription");
           // Subscription is deleted - mark as canceled
           const subData = subscription as any; // Stripe types may not include all fields
           await upsertSubscription(clerkUserId, {
@@ -148,6 +168,8 @@ export async function POST(request: NextRequest) {
           });
 
           console.log(`[Webhook] Subscription deleted for user ${clerkUserId}`);
+        } else {
+          console.warn("⛔ Early return: missing clerk_user_id in subscription.deleted metadata");
         }
         break;
       }
@@ -162,11 +184,13 @@ export async function POST(request: NextRequest) {
           const clerkUserId = subscription.metadata?.clerk_user_id;
           
           if (clerkUserId) {
+            console.log("🔍 Resolving user for subscription");
             const priceId = subscription.items.data[0]?.price.id;
             const planName = priceId ? getPlanNameFromPriceId(priceId) : 'monthly';
             const stripeCustomerId = subscription.customer as string;
             const subData = subscription as any; // Stripe types may not include all fields
 
+            console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
@@ -179,7 +203,11 @@ export async function POST(request: NextRequest) {
             });
 
             console.log(`[Webhook] Payment succeeded for user ${clerkUserId}`);
+          } else {
+            console.warn("⛔ Early return: missing clerk_user_id in invoice.payment_succeeded");
           }
+        } else {
+          console.warn("⛔ Early return: missing subscription ID in invoice.payment_succeeded");
         }
         break;
       }
@@ -194,11 +222,13 @@ export async function POST(request: NextRequest) {
           const clerkUserId = subscription.metadata?.clerk_user_id;
           
           if (clerkUserId) {
+            console.log("🔍 Resolving user for subscription");
             const priceId = subscription.items.data[0]?.price.id;
             const planName = priceId ? getPlanNameFromPriceId(priceId) : 'monthly';
             const stripeCustomerId = subscription.customer as string;
             const subData = subscription as any; // Stripe types may not include all fields
 
+            console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
@@ -211,7 +241,11 @@ export async function POST(request: NextRequest) {
             });
 
             console.log(`[Webhook] Payment failed for user ${clerkUserId}, status: ${subscription.status}`);
+          } else {
+            console.warn("⛔ Early return: missing clerk_user_id in invoice.payment_failed");
           }
+        } else {
+          console.warn("⛔ Early return: missing subscription ID in invoice.payment_failed");
         }
         break;
       }

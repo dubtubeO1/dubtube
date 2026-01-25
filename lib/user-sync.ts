@@ -163,6 +163,12 @@ export async function upsertSubscription(
     plan_name: string
   }
 ): Promise<boolean> {
+  console.log("💾 upsertSubscription called", {
+    stripe_subscription_id: subscriptionData.stripe_subscription_id,
+    stripe_customer_id: subscriptionData.stripe_customer_id,
+    status: subscriptionData.status,
+    current_period_end: subscriptionData.current_period_end.toISOString(),
+  });
   try {
     if (!supabaseAdmin) {
       console.error('Supabase admin client not initialized')
@@ -177,6 +183,7 @@ export async function upsertSubscription(
       .single()
 
     if (userError || !user) {
+      console.warn("⛔ Early return: user not found for subscription upsert");
       console.error('User not found for subscription upsert:', clerkUserId)
       return false
     }
@@ -211,7 +218,9 @@ export async function upsertSubscription(
         onConflict: 'stripe_subscription_id',
       })
 
+    console.log("✅ Supabase subscription upsert attempted");
     if (subError) {
+      console.error("❌ Supabase subscription upsert error:", subError)
       console.error('Error upserting subscription:', subError)
       return false
     }
