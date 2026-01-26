@@ -11,6 +11,13 @@ export const getStripe = () => {
   return loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY!);
 };
 
+// Stripe Product IDs from environment variables (source of truth)
+export const STRIPE_PRODUCT_IDS = {
+  MONTHLY: process.env.STRIPE_PRODUCT_MONTHLY!,
+  QUARTERLY: process.env.STRIPE_PRODUCT_QUARTERLY!,
+  ANNUAL: process.env.STRIPE_PRODUCT_ANNUAL!,
+} as const;
+
 // Stripe Price IDs from environment variables (source of truth)
 export const STRIPE_PRICE_IDS = {
   MONTHLY: process.env.STRIPE_PRICE_MONTHLY!,
@@ -38,6 +45,11 @@ export const PLAN_CONFIGS = {
 } as const;
 
 export type PlanType = keyof typeof PLAN_CONFIGS;
+
+// Validate that all Product IDs are configured
+if (!STRIPE_PRODUCT_IDS.MONTHLY || !STRIPE_PRODUCT_IDS.QUARTERLY || !STRIPE_PRODUCT_IDS.ANNUAL) {
+  throw new Error('Missing required Stripe Product ID environment variables');
+}
 
 // Validate that all Price IDs are configured
 if (!STRIPE_PRICE_IDS.MONTHLY || !STRIPE_PRICE_IDS.QUARTERLY || !STRIPE_PRICE_IDS.ANNUAL) {

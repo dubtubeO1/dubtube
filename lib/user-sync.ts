@@ -155,12 +155,13 @@ export async function upsertSubscription(
   subscriptionData: {
     stripe_customer_id: string
     stripe_subscription_id: string
+    stripe_product_id: string | null
     stripe_price_id: string
     status: string
     current_period_start: Date | null
     current_period_end: Date | null
     cancel_at_period_end: boolean
-    plan_name: string
+    plan_name: string | null
   }
 ): Promise<boolean> {
   console.log("💾 upsertSubscription called", {
@@ -202,16 +203,17 @@ export async function upsertSubscription(
     }
 
     // Upsert subscription record
-    // Include all subscription fields: stripe_customer_id, stripe_price_id, cancel_at_period_end
+    // Include all subscription fields: stripe_customer_id, stripe_product_id, stripe_price_id, cancel_at_period_end
     const { error: subError } = await supabaseAdmin
       .from('subscriptions')
       .upsert({
         user_id: user.id,
         stripe_subscription_id: subscriptionData.stripe_subscription_id,
         stripe_customer_id: subscriptionData.stripe_customer_id,
+        stripe_product_id: subscriptionData.stripe_product_id || null,
         stripe_price_id: subscriptionData.stripe_price_id || null,
         status: subscriptionStatus,
-        plan_name: subscriptionData.plan_name,
+        plan_name: subscriptionData.plan_name || null,
         current_period_start: subscriptionData.current_period_start?.toISOString() || null,
         current_period_end: subscriptionData.current_period_end?.toISOString() || null,
         cancel_at_period_end: subscriptionData.cancel_at_period_end,
@@ -232,7 +234,7 @@ export async function upsertSubscription(
       .from('users')
       .update({
         subscription_status: subscriptionStatus,
-        plan_name: subscriptionData.plan_name,
+        plan_name: subscriptionData.plan_name || null,
         stripe_customer_id: subscriptionData.stripe_customer_id,
         updated_at: new Date().toISOString(),
       })

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe, STRIPE_PRICE_IDS } from '@/lib/stripe';
+import { stripe, STRIPE_PRICE_IDS, STRIPE_PRODUCT_IDS } from '@/lib/stripe';
 import { upsertSubscription, updateUserSubscription } from '@/lib/user-sync';
 import Stripe from 'stripe';
 
@@ -8,6 +8,7 @@ const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 /**
  * Map Stripe Price ID to plan name using .env variables
  * Returns plan name or null if price ID is unknown (caller should handle)
+ * Used as fallback when product_id mapping fails
  */
 function getPlanNameFromPriceId(priceId: string): string | null {
   if (priceId === STRIPE_PRICE_IDS.MONTHLY) {
@@ -20,6 +21,44 @@ function getPlanNameFromPriceId(priceId: string): string | null {
   // Unknown price ID - log warning but return null (don't silently default)
   console.warn(`⚠️ Unknown Price ID: ${priceId} - not matching any configured price IDs`);
   return null;
+}
+
+/**
+ * Map Stripe Subscription to plan name using product_id (preferred) or price_id (fallback)
+ * Returns plan name or null if no mapping matches
+ */
+function getPlanNameFromStripeSubscription(subscription: any): {
+  planName: string | null;
+  productId: string | null;
+  priceId: string | null;
+} {
+  const priceId = subscription.items?.data[0]?.price?.id || null;
+  const productId = subscription.items?.data[0]?.price?.product || null;
+
+  // Prefer mapping by product_id
+  if (productId) {
+    if (productId === STRIPE_PRODUCT_IDS.MONTHLY) {
+      return { planName: 'monthly', productId, priceId };
+    } else if (productId === STRIPE_PRODUCT_IDS.QUARTERLY) {
+      return { planName: 'quarterly', productId, priceId };
+    } else if (productId === STRIPE_PRODUCT_IDS.ANNUAL) {
+      return { planName: 'annual', productId, priceId };
+    }
+    // Unknown product_id - log warning
+    console.warn(`⚠️ Unknown Stripe product_id: ${productId}`);
+  }
+
+  // Fallback to price_id mapping if product_id mapping failed
+  if (priceId) {
+    const planNameFromPrice = getPlanNameFromPriceId(priceId);
+    if (planNameFromPrice) {
+      console.warn(`⚠️ Using price_id fallback for plan mapping (product_id: ${productId || 'missing'})`);
+      return { planName: planNameFromPrice, productId, priceId };
+    }
+  }
+
+  // No mapping found
+  return { planName: null, productId, priceId };
 }
 
 /**
@@ -73,11 +112,11 @@ export async function POST(request: NextRequest) {
           
           if (clerkUserId && stripeCustomerId && subscription) {
             console.log("🔍 Resolving user for subscription");
-            const priceId = subscription.items.data[0]?.price.id;
-            const planName = priceId ? getPlanNameFromPriceId(priceId) : (session.metadata?.plan_name?.toLowerCase() || 'monthly');
-            
-            console.log("⬆️ Calling upsertSubscription");
             const subData = subscription as any; // Stripe types may not include all fields
+            
+            // Map subscription to plan name using product_id (preferred) or price_id (fallback)
+            const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
+            
             // Debug: Log raw Stripe timestamps before conversion
             console.log("🕐 Raw Stripe timestamps:", {
               current_period_start: subData.current_period_start,
@@ -91,20 +130,25 @@ export async function POST(request: NextRequest) {
             const periodEnd = subData.current_period_end
               ? new Date(subData.current_period_end * 1000)
               : null;
-            // Map price ID to plan name - log warning if unknown but still store price_id
-            const mappedPlanName = priceId ? (getPlanNameFromPriceId(priceId) || 'unknown') : (session.metadata?.plan_name?.toLowerCase() || 'monthly');
-            if (priceId && !getPlanNameFromPriceId(priceId)) {
-              console.warn(`⚠️ Unknown price ID ${priceId} in checkout - storing price_id but plan_name may be incorrect`);
-            }
+            
+            // Debug log before upsert
+            console.log("🧩 Subscription mapping", {
+              product_id: productId,
+              price_id: priceId,
+              resolved_plan_name: planName,
+            });
+            
+            console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
+              stripe_product_id: productId,
               stripe_price_id: priceId || '',
               status: subscription.status,
               current_period_start: periodStart,
               current_period_end: periodEnd,
               cancel_at_period_end: subData.cancel_at_period_end || false,
-              plan_name: mappedPlanName,
+              plan_name: planName,
             });
             
             console.log(`[Webhook] Checkout completed for user ${clerkUserId}, subscription ${subscription.id}`);
@@ -141,21 +185,12 @@ export async function POST(request: NextRequest) {
         const subData = fullSubscription as any; // Stripe types may not include all fields
 
         console.log("🔍 Resolving user for subscription");
-        const priceId = subData.items.data[0]?.price.id;
-        if (!priceId) {
-          console.warn("⛔ Early return: missing price ID for subscription");
-          console.error(`[Webhook] ${event.type} missing price ID for subscription ${fullSubscription.id}`);
-          break;
-        }
-
-        // Map price ID to plan name - log warning if unknown but still store price_id
-        const planName = getPlanNameFromPriceId(priceId);
-        if (!planName) {
-          console.warn(`⚠️ Unknown price ID ${priceId} - storing price_id but plan_name will be null`);
-        }
+        
+        // Map subscription to plan name using product_id (preferred) or price_id (fallback)
+        const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
+        
         const stripeCustomerId = subData.customer as string;
 
-        console.log("⬆️ Calling upsertSubscription");
         // Debug: Log raw Stripe timestamps before conversion
         console.log("🕐 Raw Stripe timestamps:", {
           current_period_start: subData.current_period_start,
@@ -173,15 +208,24 @@ export async function POST(request: NextRequest) {
         // Ensure cancel_at_period_end is correctly read from full subscription
         const cancelAtPeriodEnd = subData.cancel_at_period_end || false;
         
+        // Debug log before upsert
+        console.log("🧩 Subscription mapping", {
+          product_id: productId,
+          price_id: priceId,
+          resolved_plan_name: planName,
+        });
+        
+        console.log("⬆️ Calling upsertSubscription");
         await upsertSubscription(clerkUserId, {
           stripe_customer_id: stripeCustomerId,
           stripe_subscription_id: fullSubscription.id,
-          stripe_price_id: priceId,
+          stripe_product_id: productId,
+          stripe_price_id: priceId || '',
           status: fullSubscription.status,
           current_period_start: periodStart,
           current_period_end: periodEnd,
           cancel_at_period_end: cancelAtPeriodEnd,
-          plan_name: planName || 'unknown', // Fallback only if truly unknown
+          plan_name: planName,
         });
 
         console.log(`[Webhook] Subscription ${fullSubscription.status} for user ${clerkUserId} (cancel_at_period_end: ${cancelAtPeriodEnd})`);
@@ -200,12 +244,12 @@ export async function POST(request: NextRequest) {
           const subData = fullSubscription as any; // Stripe types may not include all fields
 
           console.log("🔍 Resolving user for subscription");
-          const priceId = subData.items.data[0]?.price.id;
-          const planName = priceId ? (getPlanNameFromPriceId(priceId) || 'unknown') : 'free';
+          
+          // Map subscription to plan name using product_id (preferred) or price_id (fallback)
+          const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
+          
           const stripeCustomerId = subData.customer as string;
 
-          console.log("⬆️ Calling upsertSubscription");
-          // Subscription is deleted - mark as canceled
           // Debug: Log raw Stripe timestamps before conversion
           console.log("🕐 Raw Stripe timestamps:", {
             current_period_start: subData.current_period_start,
@@ -219,9 +263,20 @@ export async function POST(request: NextRequest) {
           const periodEnd = subData.current_period_end
             ? new Date(subData.current_period_end * 1000)
             : null;
+          
+          // Debug log before upsert
+          console.log("🧩 Subscription mapping", {
+            product_id: productId,
+            price_id: priceId,
+            resolved_plan_name: planName,
+          });
+          
+          console.log("⬆️ Calling upsertSubscription");
+          // Subscription is deleted - mark as canceled
           await upsertSubscription(clerkUserId, {
             stripe_customer_id: stripeCustomerId,
             stripe_subscription_id: fullSubscription.id,
+            stripe_product_id: productId,
             stripe_price_id: priceId || '',
             status: 'canceled',
             current_period_start: periodStart,
@@ -248,16 +303,13 @@ export async function POST(request: NextRequest) {
           
           if (clerkUserId) {
             console.log("🔍 Resolving user for subscription");
-            const priceId = subscription.items.data[0]?.price.id;
-            // Map price ID to plan name - log warning if unknown but still store price_id
-            const planName = priceId ? (getPlanNameFromPriceId(priceId) || 'unknown') : 'monthly';
-            if (priceId && !getPlanNameFromPriceId(priceId)) {
-              console.warn(`⚠️ Unknown price ID ${priceId} in invoice.payment_succeeded - storing price_id but plan_name may be incorrect`);
-            }
+            const subData = subscription as any; // Stripe types may not include all fields
+            
+            // Map subscription to plan name using product_id (preferred) or price_id (fallback)
+            const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
+            
             const stripeCustomerId = subscription.customer as string;
 
-            console.log("⬆️ Calling upsertSubscription");
-            const subData = subscription as any; // Stripe types may not include all fields
             // Debug: Log raw Stripe timestamps before conversion
             console.log("🕐 Raw Stripe timestamps:", {
               current_period_start: subData.current_period_start,
@@ -271,9 +323,19 @@ export async function POST(request: NextRequest) {
             const periodEnd = subData.current_period_end
               ? new Date(subData.current_period_end * 1000)
               : null;
+            
+            // Debug log before upsert
+            console.log("🧩 Subscription mapping", {
+              product_id: productId,
+              price_id: priceId,
+              resolved_plan_name: planName,
+            });
+            
+            console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
+              stripe_product_id: productId,
               stripe_price_id: priceId || '',
               status: subscription.status, // Use subscription status, not invoice status
               current_period_start: periodStart,
@@ -303,16 +365,13 @@ export async function POST(request: NextRequest) {
           
           if (clerkUserId) {
             console.log("🔍 Resolving user for subscription");
-            const priceId = subscription.items.data[0]?.price.id;
-            // Map price ID to plan name - log warning if unknown but still store price_id
-            const planName = priceId ? (getPlanNameFromPriceId(priceId) || 'unknown') : 'monthly';
-            if (priceId && !getPlanNameFromPriceId(priceId)) {
-              console.warn(`⚠️ Unknown price ID ${priceId} in invoice.payment_failed - storing price_id but plan_name may be incorrect`);
-            }
+            const subData = subscription as any; // Stripe types may not include all fields
+            
+            // Map subscription to plan name using product_id (preferred) or price_id (fallback)
+            const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
+            
             const stripeCustomerId = subscription.customer as string;
 
-            console.log("⬆️ Calling upsertSubscription");
-            const subData = subscription as any; // Stripe types may not include all fields
             // Debug: Log raw Stripe timestamps before conversion
             console.log("🕐 Raw Stripe timestamps:", {
               current_period_start: subData.current_period_start,
@@ -326,9 +385,19 @@ export async function POST(request: NextRequest) {
             const periodEnd = subData.current_period_end
               ? new Date(subData.current_period_end * 1000)
               : null;
+            
+            // Debug log before upsert
+            console.log("🧩 Subscription mapping", {
+              product_id: productId,
+              price_id: priceId,
+              resolved_plan_name: planName,
+            });
+            
+            console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
+              stripe_product_id: productId,
               stripe_price_id: priceId || '',
               status: subscription.status, // Stripe sets this to 'past_due' or 'unpaid'
               current_period_start: periodStart,
