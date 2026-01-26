@@ -37,6 +37,8 @@ export async function POST(request: NextRequest) {
     const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://dubtube.net';
 
     // Create Stripe checkout session with existing Price ID
+    // CRITICAL: subscription_data.metadata ensures clerk_user_id is attached to the subscription object
+    // This is required for webhooks to identify which user the subscription belongs to
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -53,6 +55,13 @@ export async function POST(request: NextRequest) {
         clerk_user_id: userId,
         plan_type: planType,
         plan_name: plan.name,
+      },
+      subscription_data: {
+        metadata: {
+          clerk_user_id: userId,
+          plan_type: planType,
+          plan_name: plan.name,
+        },
       },
     });
 
