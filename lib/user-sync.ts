@@ -202,17 +202,19 @@ export async function upsertSubscription(
     }
 
     // Upsert subscription record
-    // Note: If stripe_price_id or cancel_at_period_end columns exist in Supabase,
-    // they should be added to the TypeScript Database type and included here
+    // Include all subscription fields: stripe_customer_id, stripe_price_id, cancel_at_period_end
     const { error: subError } = await supabaseAdmin
       .from('subscriptions')
       .upsert({
         user_id: user.id,
         stripe_subscription_id: subscriptionData.stripe_subscription_id,
+        stripe_customer_id: subscriptionData.stripe_customer_id,
+        stripe_price_id: subscriptionData.stripe_price_id || null,
         status: subscriptionStatus,
         plan_name: subscriptionData.plan_name,
         current_period_start: subscriptionData.current_period_start?.toISOString() || null,
         current_period_end: subscriptionData.current_period_end?.toISOString() || null,
+        cancel_at_period_end: subscriptionData.cancel_at_period_end,
         updated_at: new Date().toISOString(),
       }, {
         onConflict: 'stripe_subscription_id',

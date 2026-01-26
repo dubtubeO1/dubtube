@@ -6,9 +6,10 @@ import Stripe from 'stripe';
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
 /**
- * Map Stripe Price ID to plan name
+ * Map Stripe Price ID to plan name using .env variables
+ * Returns plan name or null if price ID is unknown (caller should handle)
  */
-function getPlanNameFromPriceId(priceId: string): string {
+function getPlanNameFromPriceId(priceId: string): string | null {
   if (priceId === STRIPE_PRICE_IDS.MONTHLY) {
     return 'monthly';
   } else if (priceId === STRIPE_PRICE_IDS.QUARTERLY) {
@@ -16,9 +17,9 @@ function getPlanNameFromPriceId(priceId: string): string {
   } else if (priceId === STRIPE_PRICE_IDS.ANNUAL) {
     return 'annual';
   }
-  // Fallback: try to determine from price ID or return default
-  console.warn(`Unknown Price ID: ${priceId}, defaulting to monthly`);
-  return 'monthly';
+  // Unknown price ID - log warning but return null (don't silently default)
+  console.warn(`⚠️ Unknown Price ID: ${priceId} - not matching any configured price IDs`);
+  return null;
 }
 
 /**
@@ -81,6 +82,7 @@ export async function POST(request: NextRequest) {
             console.log("🕐 Raw Stripe timestamps:", {
               current_period_start: subData.current_period_start,
               current_period_end: subData.current_period_end,
+              cancel_at_period_end: subData.cancel_at_period_end,
             });
             // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
             const periodStart = subData.current_period_start
@@ -89,6 +91,11 @@ export async function POST(request: NextRequest) {
             const periodEnd = subData.current_period_end
               ? new Date(subData.current_period_end * 1000)
               : null;
+            // Map price ID to plan name - log warning if unknown but still store price_id
+            const mappedPlanName = priceId ? (getPlanNameFromPriceId(priceId) || 'unknown') : (session.metadata?.plan_name?.toLowerCase() || 'monthly');
+            if (priceId && !getPlanNameFromPriceId(priceId)) {
+              console.warn(`⚠️ Unknown price ID ${priceId} in checkout - storing price_id but plan_name may be incorrect`);
+            }
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
@@ -97,7 +104,7 @@ export async function POST(request: NextRequest) {
               current_period_start: periodStart,
               current_period_end: periodEnd,
               cancel_at_period_end: subData.cancel_at_period_end || false,
-              plan_name: planName,
+              plan_name: mappedPlanName,
             });
             
             console.log(`[Webhook] Checkout completed for user ${clerkUserId}, subscription ${subscription.id}`);
@@ -115,11 +122,11 @@ export async function POST(request: NextRequest) {
         if (event.type === 'customer.subscription.created') {
           console.log("🧾 subscription.created received");
         }
-        const subscription = event.data.object as Stripe.Subscription;
-        console.log("🆔 Stripe subscription ID:", subscription.id);
-        console.log("👤 Stripe customer ID:", subscription.customer);
-        console.log("🏷 subscription.metadata:", subscription.metadata);
-        const clerkUserId = subscription.metadata?.clerk_user_id;
+        const subscriptionEvent = event.data.object as Stripe.Subscription;
+        console.log("🆔 Stripe subscription ID:", subscriptionEvent.id);
+        console.log("👤 Stripe customer ID:", subscriptionEvent.customer);
+        console.log("🏷 subscription.metadata:", subscriptionEvent.metadata);
+        const clerkUserId = subscriptionEvent.metadata?.clerk_user_id;
         
         if (!clerkUserId) {
           console.warn("⛔ Early return: missing clerk_user_id in metadata");
@@ -127,23 +134,33 @@ export async function POST(request: NextRequest) {
           break;
         }
 
+        // CRITICAL: Always fetch full subscription from Stripe API to ensure complete state
+        console.log("📥 Fetching full subscription from Stripe API...");
+        const fullSubscription = await stripe.subscriptions.retrieve(subscriptionEvent.id);
+        console.log("✅ Full subscription retrieved");
+        const subData = fullSubscription as any; // Stripe types may not include all fields
+
         console.log("🔍 Resolving user for subscription");
-        const priceId = subscription.items.data[0]?.price.id;
+        const priceId = subData.items.data[0]?.price.id;
         if (!priceId) {
           console.warn("⛔ Early return: missing price ID for subscription");
-          console.error(`[Webhook] ${event.type} missing price ID for subscription ${subscription.id}`);
+          console.error(`[Webhook] ${event.type} missing price ID for subscription ${fullSubscription.id}`);
           break;
         }
 
+        // Map price ID to plan name - log warning if unknown but still store price_id
         const planName = getPlanNameFromPriceId(priceId);
-        const stripeCustomerId = subscription.customer as string;
+        if (!planName) {
+          console.warn(`⚠️ Unknown price ID ${priceId} - storing price_id but plan_name will be null`);
+        }
+        const stripeCustomerId = subData.customer as string;
 
         console.log("⬆️ Calling upsertSubscription");
-        const subData = subscription as any; // Stripe types may not include all fields
         // Debug: Log raw Stripe timestamps before conversion
         console.log("🕐 Raw Stripe timestamps:", {
           current_period_start: subData.current_period_start,
           current_period_end: subData.current_period_end,
+          cancel_at_period_end: subData.cancel_at_period_end,
         });
         // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
         const periodStart = subData.current_period_start
@@ -152,38 +169,48 @@ export async function POST(request: NextRequest) {
         const periodEnd = subData.current_period_end
           ? new Date(subData.current_period_end * 1000)
           : null;
+        
+        // Ensure cancel_at_period_end is correctly read from full subscription
+        const cancelAtPeriodEnd = subData.cancel_at_period_end || false;
+        
         await upsertSubscription(clerkUserId, {
           stripe_customer_id: stripeCustomerId,
-          stripe_subscription_id: subscription.id,
+          stripe_subscription_id: fullSubscription.id,
           stripe_price_id: priceId,
-          status: subscription.status,
+          status: fullSubscription.status,
           current_period_start: periodStart,
           current_period_end: periodEnd,
-          cancel_at_period_end: subData.cancel_at_period_end || false,
-          plan_name: planName,
+          cancel_at_period_end: cancelAtPeriodEnd,
+          plan_name: planName || 'unknown', // Fallback only if truly unknown
         });
 
-        console.log(`[Webhook] Subscription ${subscription.status} for user ${clerkUserId} (cancel_at_period_end: ${subscription.cancel_at_period_end})`);
+        console.log(`[Webhook] Subscription ${fullSubscription.status} for user ${clerkUserId} (cancel_at_period_end: ${cancelAtPeriodEnd})`);
         break;
       }
 
       case 'customer.subscription.deleted': {
-        const subscription = event.data.object as Stripe.Subscription;
-        const clerkUserId = subscription.metadata?.clerk_user_id;
+        const subscriptionEvent = event.data.object as Stripe.Subscription;
+        const clerkUserId = subscriptionEvent.metadata?.clerk_user_id;
         
         if (clerkUserId) {
+          // CRITICAL: Always fetch full subscription from Stripe API to ensure complete state
+          console.log("📥 Fetching full subscription from Stripe API...");
+          const fullSubscription = await stripe.subscriptions.retrieve(subscriptionEvent.id);
+          console.log("✅ Full subscription retrieved");
+          const subData = fullSubscription as any; // Stripe types may not include all fields
+
           console.log("🔍 Resolving user for subscription");
-          const priceId = subscription.items.data[0]?.price.id;
-          const planName = priceId ? getPlanNameFromPriceId(priceId) : 'free';
-          const stripeCustomerId = subscription.customer as string;
+          const priceId = subData.items.data[0]?.price.id;
+          const planName = priceId ? (getPlanNameFromPriceId(priceId) || 'unknown') : 'free';
+          const stripeCustomerId = subData.customer as string;
 
           console.log("⬆️ Calling upsertSubscription");
           // Subscription is deleted - mark as canceled
-          const subData = subscription as any; // Stripe types may not include all fields
           // Debug: Log raw Stripe timestamps before conversion
           console.log("🕐 Raw Stripe timestamps:", {
             current_period_start: subData.current_period_start,
             current_period_end: subData.current_period_end,
+            cancel_at_period_end: subData.cancel_at_period_end,
           });
           // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
           const periodStart = subData.current_period_start
@@ -194,12 +221,12 @@ export async function POST(request: NextRequest) {
             : null;
           await upsertSubscription(clerkUserId, {
             stripe_customer_id: stripeCustomerId,
-            stripe_subscription_id: subscription.id,
+            stripe_subscription_id: fullSubscription.id,
             stripe_price_id: priceId || '',
             status: 'canceled',
             current_period_start: periodStart,
             current_period_end: periodEnd,
-            cancel_at_period_end: false,
+            cancel_at_period_end: false, // Deleted subscriptions are not canceling at period end
             plan_name: planName,
           });
 
@@ -222,15 +249,20 @@ export async function POST(request: NextRequest) {
           if (clerkUserId) {
             console.log("🔍 Resolving user for subscription");
             const priceId = subscription.items.data[0]?.price.id;
-            const planName = priceId ? getPlanNameFromPriceId(priceId) : 'monthly';
+            // Map price ID to plan name - log warning if unknown but still store price_id
+            const planName = priceId ? (getPlanNameFromPriceId(priceId) || 'unknown') : 'monthly';
+            if (priceId && !getPlanNameFromPriceId(priceId)) {
+              console.warn(`⚠️ Unknown price ID ${priceId} in invoice.payment_succeeded - storing price_id but plan_name may be incorrect`);
+            }
             const stripeCustomerId = subscription.customer as string;
-            const subData = subscription as any; // Stripe types may not include all fields
 
             console.log("⬆️ Calling upsertSubscription");
+            const subData = subscription as any; // Stripe types may not include all fields
             // Debug: Log raw Stripe timestamps before conversion
             console.log("🕐 Raw Stripe timestamps:", {
               current_period_start: subData.current_period_start,
               current_period_end: subData.current_period_end,
+              cancel_at_period_end: subData.cancel_at_period_end,
             });
             // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
             const periodStart = subData.current_period_start
@@ -272,15 +304,20 @@ export async function POST(request: NextRequest) {
           if (clerkUserId) {
             console.log("🔍 Resolving user for subscription");
             const priceId = subscription.items.data[0]?.price.id;
-            const planName = priceId ? getPlanNameFromPriceId(priceId) : 'monthly';
+            // Map price ID to plan name - log warning if unknown but still store price_id
+            const planName = priceId ? (getPlanNameFromPriceId(priceId) || 'unknown') : 'monthly';
+            if (priceId && !getPlanNameFromPriceId(priceId)) {
+              console.warn(`⚠️ Unknown price ID ${priceId} in invoice.payment_failed - storing price_id but plan_name may be incorrect`);
+            }
             const stripeCustomerId = subscription.customer as string;
-            const subData = subscription as any; // Stripe types may not include all fields
 
             console.log("⬆️ Calling upsertSubscription");
+            const subData = subscription as any; // Stripe types may not include all fields
             // Debug: Log raw Stripe timestamps before conversion
             console.log("🕐 Raw Stripe timestamps:", {
               current_period_start: subData.current_period_start,
               current_period_end: subData.current_period_end,
+              cancel_at_period_end: subData.cancel_at_period_end,
             });
             // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
             const periodStart = subData.current_period_start
