@@ -77,13 +77,25 @@ export async function POST(request: NextRequest) {
             
             console.log("⬆️ Calling upsertSubscription");
             const subData = subscription as any; // Stripe types may not include all fields
+            // Debug: Log raw Stripe timestamps before conversion
+            console.log("🕐 Raw Stripe timestamps:", {
+              current_period_start: subData.current_period_start,
+              current_period_end: subData.current_period_end,
+            });
+            // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
+            const periodStart = subData.current_period_start
+              ? new Date(subData.current_period_start * 1000)
+              : null;
+            const periodEnd = subData.current_period_end
+              ? new Date(subData.current_period_end * 1000)
+              : null;
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
               stripe_price_id: priceId || '',
               status: subscription.status,
-              current_period_start: new Date(subData.current_period_start * 1000),
-              current_period_end: new Date(subData.current_period_end * 1000),
+              current_period_start: periodStart,
+              current_period_end: periodEnd,
               cancel_at_period_end: subData.cancel_at_period_end || false,
               plan_name: planName,
             });
@@ -128,13 +140,25 @@ export async function POST(request: NextRequest) {
 
         console.log("⬆️ Calling upsertSubscription");
         const subData = subscription as any; // Stripe types may not include all fields
+        // Debug: Log raw Stripe timestamps before conversion
+        console.log("🕐 Raw Stripe timestamps:", {
+          current_period_start: subData.current_period_start,
+          current_period_end: subData.current_period_end,
+        });
+        // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
+        const periodStart = subData.current_period_start
+          ? new Date(subData.current_period_start * 1000)
+          : null;
+        const periodEnd = subData.current_period_end
+          ? new Date(subData.current_period_end * 1000)
+          : null;
         await upsertSubscription(clerkUserId, {
           stripe_customer_id: stripeCustomerId,
           stripe_subscription_id: subscription.id,
           stripe_price_id: priceId,
           status: subscription.status,
-          current_period_start: new Date(subData.current_period_start * 1000),
-          current_period_end: new Date(subData.current_period_end * 1000),
+          current_period_start: periodStart,
+          current_period_end: periodEnd,
           cancel_at_period_end: subData.cancel_at_period_end || false,
           plan_name: planName,
         });
@@ -156,13 +180,25 @@ export async function POST(request: NextRequest) {
           console.log("⬆️ Calling upsertSubscription");
           // Subscription is deleted - mark as canceled
           const subData = subscription as any; // Stripe types may not include all fields
+          // Debug: Log raw Stripe timestamps before conversion
+          console.log("🕐 Raw Stripe timestamps:", {
+            current_period_start: subData.current_period_start,
+            current_period_end: subData.current_period_end,
+          });
+          // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
+          const periodStart = subData.current_period_start
+            ? new Date(subData.current_period_start * 1000)
+            : null;
+          const periodEnd = subData.current_period_end
+            ? new Date(subData.current_period_end * 1000)
+            : null;
           await upsertSubscription(clerkUserId, {
             stripe_customer_id: stripeCustomerId,
             stripe_subscription_id: subscription.id,
             stripe_price_id: priceId || '',
             status: 'canceled',
-            current_period_start: new Date(subData.current_period_start * 1000),
-            current_period_end: new Date(subData.current_period_end * 1000),
+            current_period_start: periodStart,
+            current_period_end: periodEnd,
             cancel_at_period_end: false,
             plan_name: planName,
           });
@@ -191,13 +227,25 @@ export async function POST(request: NextRequest) {
             const subData = subscription as any; // Stripe types may not include all fields
 
             console.log("⬆️ Calling upsertSubscription");
+            // Debug: Log raw Stripe timestamps before conversion
+            console.log("🕐 Raw Stripe timestamps:", {
+              current_period_start: subData.current_period_start,
+              current_period_end: subData.current_period_end,
+            });
+            // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
+            const periodStart = subData.current_period_start
+              ? new Date(subData.current_period_start * 1000)
+              : null;
+            const periodEnd = subData.current_period_end
+              ? new Date(subData.current_period_end * 1000)
+              : null;
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
               stripe_price_id: priceId || '',
               status: subscription.status, // Use subscription status, not invoice status
-              current_period_start: new Date(subData.current_period_start * 1000),
-              current_period_end: new Date(subData.current_period_end * 1000),
+              current_period_start: periodStart,
+              current_period_end: periodEnd,
               cancel_at_period_end: subData.cancel_at_period_end || false,
               plan_name: planName,
             });
@@ -229,13 +277,25 @@ export async function POST(request: NextRequest) {
             const subData = subscription as any; // Stripe types may not include all fields
 
             console.log("⬆️ Calling upsertSubscription");
+            // Debug: Log raw Stripe timestamps before conversion
+            console.log("🕐 Raw Stripe timestamps:", {
+              current_period_start: subData.current_period_start,
+              current_period_end: subData.current_period_end,
+            });
+            // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
+            const periodStart = subData.current_period_start
+              ? new Date(subData.current_period_start * 1000)
+              : null;
+            const periodEnd = subData.current_period_end
+              ? new Date(subData.current_period_end * 1000)
+              : null;
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
               stripe_price_id: priceId || '',
               status: subscription.status, // Stripe sets this to 'past_due' or 'unpaid'
-              current_period_start: new Date(subData.current_period_start * 1000),
-              current_period_end: new Date(subData.current_period_end * 1000),
+              current_period_start: periodStart,
+              current_period_end: periodEnd,
               cancel_at_period_end: subData.cancel_at_period_end || false,
               plan_name: planName,
             });

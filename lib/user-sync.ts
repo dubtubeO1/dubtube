@@ -157,8 +157,8 @@ export async function upsertSubscription(
     stripe_subscription_id: string
     stripe_price_id: string
     status: string
-    current_period_start: Date
-    current_period_end: Date
+    current_period_start: Date | null
+    current_period_end: Date | null
     cancel_at_period_end: boolean
     plan_name: string
   }
@@ -167,7 +167,7 @@ export async function upsertSubscription(
     stripe_subscription_id: subscriptionData.stripe_subscription_id,
     stripe_customer_id: subscriptionData.stripe_customer_id,
     status: subscriptionData.status,
-    current_period_end: subscriptionData.current_period_end.toISOString(),
+    current_period_end: subscriptionData.current_period_end?.toISOString() || null,
   });
   try {
     if (!supabaseAdmin) {
@@ -211,8 +211,8 @@ export async function upsertSubscription(
         stripe_subscription_id: subscriptionData.stripe_subscription_id,
         status: subscriptionStatus,
         plan_name: subscriptionData.plan_name,
-        current_period_start: subscriptionData.current_period_start.toISOString(),
-        current_period_end: subscriptionData.current_period_end.toISOString(),
+        current_period_start: subscriptionData.current_period_start?.toISOString() || null,
+        current_period_end: subscriptionData.current_period_end?.toISOString() || null,
         updated_at: new Date().toISOString(),
       }, {
         onConflict: 'stripe_subscription_id',
