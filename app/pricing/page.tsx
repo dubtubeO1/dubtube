@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, Star, Zap, Globe, Headphones } from 'lucide-react';
 import { useUser, SignInButton } from '@clerk/nextjs';
 import { getStripe } from '@/lib/stripe-client';
@@ -104,6 +104,67 @@ const faqs = [
 export default function PricingPage() {
   const { user, isLoaded } = useUser();
   const [loading, setLoading] = useState<string | null>(null);
+  const [subscriptionInfo, setSubscriptionInfo] = useState<any>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
+
+  // Fetch current subscription status for the logged-in user
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      if (!user) {
+        setSubscriptionInfo(null);
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/me/subscription');
+        if (!res.ok) {
+          console.error('Failed to fetch subscription info');
+          return;
+        }
+        const data = await res.json();
+        setSubscriptionInfo(data);
+      } catch (err) {
+        console.error('Error fetching subscription info:', err);
+      }
+    };
+
+    if (isLoaded) {
+      fetchSubscription();
+    }
+  }, [user, isLoaded]);
+
+  const handleManageSubscription = async () => {
+    if (!user || !subscriptionInfo?.stripe_customer_id) {
+      console.error('No active subscription or Stripe customer ID to manage');
+      return;
+    }
+
+    try {
+      setPortalLoading(true);
+      const res = await fetch('/api/stripe/portal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userData: { stripe_customer_id: subscriptionInfo.stripe_customer_id },
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.url) {
+        console.error('Error creating portal session:', data?.error || 'Unknown error');
+        return;
+      }
+
+      window.location.href = data.url;
+    } catch (error) {
+      console.error('Error redirecting to billing portal:', error);
+    } finally {
+      setPortalLoading(false);
+    }
+  };
 
   const handleCheckout = async (planType: string) => {
     if (!user) return;
@@ -119,7 +180,21 @@ export default function PricingPage() {
         body: JSON.stringify({ planType }),
       });
 
-      const { sessionId } = await response.json();
+      const data = await response.json();
+
+      // Backend guard may block checkout if user already has an active subscription
+      if (!response.ok) {
+        if (data?.redirectToPortal) {
+          console.log('Checkout blocked: user already has active subscription, redirecting to portal');
+          await handleManageSubscription();
+          return;
+        }
+
+        console.error('Error from checkout API:', data?.error || 'Unknown error');
+        return;
+      }
+
+      const { sessionId } = data;
       
       if (sessionId) {
         const stripe = await getStripe();
@@ -247,6 +322,14 @@ export default function PricingPage() {
                       {plan.button}
                     </button>
                   </SignInButton>
+                ) : subscriptionInfo?.is_active && plan.planType ? (
+                  // User already has an active subscription – do not show Buy buttons
+                  <button
+                    className="w-full py-4 rounded-2xl font-semibold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-not-allowed opacity-70"
+                    disabled
+                  >
+                    Already subscribed
+                  </button>
                 ) : (
                   <button
                     onClick={() => plan.planType && handleCheckout(plan.planType)}
@@ -264,6 +347,21 @@ export default function PricingPage() {
             );
           })}
         </div>
+
+        {/* Single Manage Subscription button when user has an active subscription */}
+        {user && subscriptionInfo?.is_active && (
+          <div className="mb-16 text-center">
+            <button
+              onClick={handleManageSubscription}
+              disabled={portalLoading}
+              className={`inline-flex items-center px-8 py-4 rounded-2xl font-semibold transition-all duration-300 bg-gradient-to-r from-slate-700 to-slate-600 dark:from-slate-600 dark:to-slate-500 text-white hover:from-slate-800 hover:to-slate-700 dark:hover:from-slate-500 dark:hover:to-slate-400 shadow-lg hover:shadow-xl transform hover:scale-105 ${
+                portalLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {portalLoading ? 'Opening billing portal...' : 'Manage subscription'}
+            </button>
+          </div>
+        )}
 
         {/* FAQ Section */}
         <div className="max-w-4xl mx-auto">
