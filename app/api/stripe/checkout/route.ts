@@ -155,6 +155,7 @@ export async function POST(request: NextRequest) {
       mode: 'subscription';
       success_url: string;
       cancel_url: string;
+      allow_promotion_codes: boolean;
       metadata: { clerk_user_id: string; plan_type: string; plan_name: string };
       subscription_data: { metadata: { clerk_user_id: string; plan_type: string; plan_name: string } };
       customer?: string;
@@ -165,6 +166,7 @@ export async function POST(request: NextRequest) {
       mode: 'subscription',
       success_url: `${BASE_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${BASE_URL}/pricing?canceled=true`,
+      allow_promotion_codes: true,
       metadata: {
         clerk_user_id: userId,
         plan_type: planType,
