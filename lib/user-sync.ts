@@ -202,25 +202,26 @@ export async function upsertSubscription(
       subscriptionStatus = 'incomplete'
     }
 
-    // Upsert subscription record
-    // Include all subscription fields: stripe_customer_id, stripe_product_id, stripe_price_id, cancel_at_period_end
+    // Upsert subscription record: one row per user (UNIQUE on user_id).
+    // Re-subscribing after cancel updates the same row with new stripe_subscription_id, status, periods, etc.
     const { error: subError } = await supabaseAdmin
       .from('subscriptions')
-      .upsert({
-        user_id: user.id,
-        stripe_subscription_id: subscriptionData.stripe_subscription_id,
-        stripe_customer_id: subscriptionData.stripe_customer_id,
-        stripe_product_id: subscriptionData.stripe_product_id || null,
-        stripe_price_id: subscriptionData.stripe_price_id || null,
-        status: subscriptionStatus,
-        plan_name: subscriptionData.plan_name || null,
-        current_period_start: subscriptionData.current_period_start?.toISOString() || null,
-        current_period_end: subscriptionData.current_period_end?.toISOString() || null,
-        cancel_at_period_end: subscriptionData.cancel_at_period_end,
-        updated_at: new Date().toISOString(),
-      }, {
-        onConflict: 'stripe_subscription_id',
-      })
+      .upsert(
+        {
+          user_id: user.id,
+          stripe_subscription_id: subscriptionData.stripe_subscription_id,
+          stripe_customer_id: subscriptionData.stripe_customer_id,
+          stripe_product_id: subscriptionData.stripe_product_id || null,
+          stripe_price_id: subscriptionData.stripe_price_id || null,
+          status: subscriptionStatus,
+          plan_name: subscriptionData.plan_name || null,
+          current_period_start: subscriptionData.current_period_start?.toISOString() || null,
+          current_period_end: subscriptionData.current_period_end?.toISOString() || null,
+          cancel_at_period_end: subscriptionData.cancel_at_period_end,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      )
 
     console.log("✅ Supabase subscription upsert attempted");
     if (subError) {
