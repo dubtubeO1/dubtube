@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe, STRIPE_PRICE_IDS, STRIPE_PRODUCT_IDS } from '@/lib/stripe';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { upsertSubscription, updateUserSubscription } from '@/lib/user-sync';
 import Stripe from 'stripe';
 
@@ -100,15 +101,32 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        
-        // Only process if it's a subscription checkout
+        const clerkUserIdFromSession = session.metadata?.clerk_user_id;
+        const stripeCustomerIdFromSession = session.customer as string;
+
+        // Safety net: always sync stripe_customer_id to Supabase so one Clerk user maps to one Stripe customer.
+        // If Stripe ever created a new customer, we self-heal so the next checkout reuses it.
+        if (clerkUserIdFromSession && stripeCustomerIdFromSession && supabaseAdmin) {
+          const { error: updateErr } = await supabaseAdmin
+            .from('users')
+            .update({
+              stripe_customer_id: stripeCustomerIdFromSession,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('clerk_user_id', clerkUserIdFromSession);
+          if (updateErr) {
+            console.error('[Webhook] Failed to sync stripe_customer_id to users:', updateErr);
+          }
+        }
+
+        // Only process subscription creation/upsert if it's a subscription checkout
         if (session.mode === 'subscription' && session.subscription) {
           const subscription = await stripe.subscriptions.retrieve(
             session.subscription as string
           );
           
-          const clerkUserId = session.metadata?.clerk_user_id || subscription.metadata?.clerk_user_id;
-          const stripeCustomerId = session.customer as string;
+          const clerkUserId = clerkUserIdFromSession || subscription.metadata?.clerk_user_id;
+          const stripeCustomerId = stripeCustomerIdFromSession;
           
           if (clerkUserId && stripeCustomerId && subscription) {
             console.log("🔍 Resolving user for subscription");

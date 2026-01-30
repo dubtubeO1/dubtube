@@ -47,10 +47,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Look up the Supabase user and most recent subscription
+    // Look up the Supabase user (id, subscription_status, stripe_customer_id for reuse)
     const { data: userRow, error: userError } = await supabaseAdmin
       .from('users')
-      .select('id, subscription_status')
+      .select('id, subscription_status, stripe_customer_id')
       .eq('clerk_user_id', userId)
       .single();
 
@@ -109,9 +109,10 @@ export async function POST(request: NextRequest) {
 
     const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://dubtube.net';
 
-    // Create Stripe checkout session with existing Price ID
-    // CRITICAL: subscription_data.metadata ensures clerk_user_id is attached to the subscription object
-    // This is required for webhooks to identify which user the subscription belongs to
+    // One Clerk user = one Stripe customer (lifetime). Reuse existing customer when present
+    // so re-subscribing after cancel uses the same customer and webhooks link correctly.
+    const existingStripeCustomerId = userRow.stripe_customer_id || null;
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -120,10 +121,15 @@ export async function POST(request: NextRequest) {
           quantity: 1,
         },
       ],
-      mode: 'subscription', // All plans are subscriptions
+      mode: 'subscription',
       success_url: `${BASE_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${BASE_URL}/pricing?canceled=true`,
-      customer_email: user?.emailAddresses[0]?.emailAddress,
+      ...(existingStripeCustomerId
+        ? { customer: existingStripeCustomerId }
+        : {
+            customer_creation: 'always' as const,
+            customer_email: user?.emailAddresses[0]?.emailAddress,
+          }),
       metadata: {
         clerk_user_id: userId,
         plan_type: planType,
