@@ -132,31 +132,39 @@ export async function POST(request: NextRequest) {
 
     const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://dubtube.net';
     const existingStripeCustomerId = userRow.stripe_customer_id || null;
-    const customerEmail = user.emailAddresses[0]?.emailAddress ?? undefined;
+    const email = user.emailAddresses[0]?.emailAddress ?? undefined;
 
-    // New customer path: Stripe requires customer_email when customer_creation is 'always'
-    if (!existingStripeCustomerId && !customerEmail) {
-      console.error('[Checkout] Cannot create session: email required for new customer', { userId });
-      return NextResponse.json(
-        { error: 'Email is required to start checkout. Please add an email to your account.' },
-        { status: 400 }
-      );
+    // In subscription mode Stripe does NOT allow customer_creation. Use either:
+    // - customer (existing) to reuse, or
+    // - customer_email (new) and Stripe creates the customer.
+    if (existingStripeCustomerId) {
+      // Reuse existing Stripe customer (re-subscribe, one Clerk user → one Stripe customer)
+    } else {
+      if (!email) {
+        console.error('[Checkout] Email required for new customer', { userId });
+        return NextResponse.json(
+          { error: 'Email is required to start checkout.' },
+          { status: 400 }
+        );
+      }
     }
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionParams: {
+      payment_method_types: ['card'];
+      line_items: Array<{ price: string; quantity: number }>;
+      mode: 'subscription';
+      success_url: string;
+      cancel_url: string;
+      metadata: { clerk_user_id: string; plan_type: string; plan_name: string };
+      subscription_data: { metadata: { clerk_user_id: string; plan_type: string; plan_name: string } };
+      customer?: string;
+      customer_email?: string;
+    } = {
       payment_method_types: ['card'],
-      line_items: [
-        { price: plan.priceId, quantity: 1 },
-      ],
+      line_items: [{ price: plan.priceId, quantity: 1 }],
       mode: 'subscription',
       success_url: `${BASE_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${BASE_URL}/pricing?canceled=true`,
-      ...(existingStripeCustomerId
-        ? { customer: existingStripeCustomerId }
-        : {
-            customer_creation: 'always' as const,
-            customer_email: customerEmail,
-          }),
       metadata: {
         clerk_user_id: userId,
         plan_type: planType,
@@ -169,7 +177,15 @@ export async function POST(request: NextRequest) {
           plan_name: plan.name,
         },
       },
-    });
+    };
+
+    if (existingStripeCustomerId) {
+      sessionParams.customer = existingStripeCustomerId;
+    } else {
+      sessionParams.customer_email = email;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     console.log('[Checkout] Session created', { sessionId: session.id, clerk_user_id: userId });
     return NextResponse.json({ sessionId: session.id });
