@@ -106,6 +106,7 @@ export default function PricingPage() {
   const [loading, setLoading] = useState<string | null>(null);
   const [subscriptionInfo, setSubscriptionInfo] = useState<any>(null);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   // Fetch current subscription status for the logged-in user
   useEffect(() => {
@@ -168,42 +169,39 @@ export default function PricingPage() {
 
   const handleCheckout = async (planType: string) => {
     if (!user) return;
-    
+    setCheckoutError(null);
     setLoading(planType);
-    
     try {
       const response = await fetch('/api/stripe/checkout', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ planType }),
       });
-
       const data = await response.json();
 
-      // Backend guard may block checkout if user already has an active subscription
       if (!response.ok) {
         if (data?.redirectToPortal) {
-          console.log('Checkout blocked: user already has active subscription, redirecting to portal');
           await handleManageSubscription();
           return;
         }
-
-        console.error('Error from checkout API:', data?.error || 'Unknown error');
+        setCheckoutError(data?.error || 'Checkout failed. Please try again.');
         return;
       }
 
-      const { sessionId } = data;
-      
+      const sessionId = data?.sessionId;
       if (sessionId) {
         const stripe = await getStripe();
         if (stripe) {
           await stripe.redirectToCheckout({ sessionId });
+        } else {
+          setCheckoutError('Payment provider could not be loaded. Please try again.');
         }
+      } else {
+        setCheckoutError('Invalid response from checkout. Please try again.');
       }
     } catch (error) {
       console.error('Error creating checkout session:', error);
+      setCheckoutError('Something went wrong. Please try again.');
     } finally {
       setLoading(null);
     }
@@ -258,7 +256,11 @@ export default function PricingPage() {
 
         {/* Pricing Cards Section Anchor */}
         <div id="pricing-cards" className="scroll-mt-24"></div>
-        
+        {checkoutError && (
+          <div className="mb-6 rounded-2xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-6 py-4 text-red-700 dark:text-red-300 text-center">
+            {checkoutError}
+          </div>
+        )}
         {/* Pricing Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16">
           {plans.map((plan) => {

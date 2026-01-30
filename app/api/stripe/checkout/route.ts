@@ -29,75 +29,93 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure user exists in Supabase
     const user = await currentUser();
-    if (user) {
-      await syncUserToSupabase(user);
+    if (!user) {
+      console.error('[Checkout] currentUser() returned null for authenticated userId');
+      return NextResponse.json(
+        { error: 'User session could not be loaded. Please sign in again.' },
+        { status: 401 }
+      );
     }
 
-    // ---------------------------------------------------------------------
-    // Backend guard: prevent users with an active subscription from
-    // creating a new Stripe Checkout session.
-    // ---------------------------------------------------------------------
+    // Ensure user exists in Supabase (required for guard and for stripe_customer_id reuse)
+    await syncUserToSupabase(user);
+
     if (!supabaseAdmin) {
-      console.error('Supabase admin client not initialized in checkout handler');
+      console.error('[Checkout] Supabase admin client not initialized');
       return NextResponse.json(
         { error: 'Server configuration error' },
         { status: 500 }
       );
     }
 
-    // Look up the Supabase user (id, subscription_status, stripe_customer_id for reuse)
-    const { data: userRow, error: userError } = await supabaseAdmin
+    // Look up the Supabase user; if missing, retry sync once (handles Clerk webhook race)
+    let { data: userRow, error: userError } = await supabaseAdmin
       .from('users')
       .select('id, subscription_status, stripe_customer_id')
       .eq('clerk_user_id', userId)
       .single();
 
     if (userError || !userRow) {
-      console.error('Error fetching user for checkout guard:', userError || 'User not found');
+      console.warn('[Checkout] User not found after sync, retrying sync once', { userId, userError: userError?.message });
+      await syncUserToSupabase(user);
+      const retry = await supabaseAdmin
+        .from('users')
+        .select('id, subscription_status, stripe_customer_id')
+        .eq('clerk_user_id', userId)
+        .single();
+      userRow = retry.data;
+      userError = retry.error;
+    }
+
+    if (userError || !userRow) {
+      console.error('[Checkout] User not found in billing system after sync', { userId, userError: userError?.message });
       return NextResponse.json(
-        { error: 'User not found in billing system' },
+        { error: 'Account not ready for checkout. Please try again in a moment or contact support.' },
         { status: 400 }
       );
     }
 
+    // ---------------------------------------------------------------------
+    // Guard: block only when user has an ACTIVE or TRIALING subscription.
+    // New users (no subscription row, or status free/canceled) must NOT be blocked.
+    // ---------------------------------------------------------------------
     const { data: subscriptionRow } = await supabaseAdmin
       .from('subscriptions')
       .select('status, current_period_end')
       .eq('user_id', userRow.id)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    let hasActiveSubscription = false;
     const now = new Date();
+    let hasActiveSubscription = false;
 
+    // Only treat as active if we have a subscription row with future period and active/trialing status
     if (subscriptionRow?.current_period_end) {
       const periodEnd = new Date(subscriptionRow.current_period_end);
       const status = subscriptionRow.status;
-
-      // Treat active / trialing Stripe statuses as an active subscription
       if (periodEnd > now && (status === 'active' || status === 'trialing')) {
         hasActiveSubscription = true;
       }
     }
 
-    // Fallback: if no subscription row, trust users table status
+    // Fallback: if no subscription row, do NOT block (new user). Only trust users table
+    // when we have no subscription row if status is explicitly active/legacy (edge case).
     if (
       !hasActiveSubscription &&
+      subscriptionRow == null &&
       (userRow.subscription_status === 'active' || userRow.subscription_status === 'legacy')
     ) {
       hasActiveSubscription = true;
     }
 
     if (hasActiveSubscription) {
-      console.log('🚫 Checkout blocked: user already has active subscription', {
+      console.log('[Checkout] Guard: blocked – user already has active subscription', {
         clerk_user_id: userId,
-        subscription_status: subscriptionRow?.status || userRow.subscription_status,
-        current_period_end: subscriptionRow?.current_period_end || null,
+        subscription_status: subscriptionRow?.status ?? userRow.subscription_status,
+        current_period_end: subscriptionRow?.current_period_end ?? null,
       });
-
       return NextResponse.json(
         {
           error: 'User already has an active subscription',
@@ -107,19 +125,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://dubtube.net';
+    console.log('[Checkout] Guard: allowed – creating session', {
+      clerk_user_id: userId,
+      has_stripe_customer_id: !!userRow.stripe_customer_id,
+    });
 
-    // One Clerk user = one Stripe customer (lifetime). Reuse existing customer when present
-    // so re-subscribing after cancel uses the same customer and webhooks link correctly.
+    const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://dubtube.net';
     const existingStripeCustomerId = userRow.stripe_customer_id || null;
+    const customerEmail = user.emailAddresses[0]?.emailAddress ?? undefined;
+
+    // New customer path: Stripe requires customer_email when customer_creation is 'always'
+    if (!existingStripeCustomerId && !customerEmail) {
+      console.error('[Checkout] Cannot create session: email required for new customer', { userId });
+      return NextResponse.json(
+        { error: 'Email is required to start checkout. Please add an email to your account.' },
+        { status: 400 }
+      );
+    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
-        {
-          price: plan.priceId,
-          quantity: 1,
-        },
+        { price: plan.priceId, quantity: 1 },
       ],
       mode: 'subscription',
       success_url: `${BASE_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
@@ -128,7 +155,7 @@ export async function POST(request: NextRequest) {
         ? { customer: existingStripeCustomerId }
         : {
             customer_creation: 'always' as const,
-            customer_email: user?.emailAddresses[0]?.emailAddress,
+            customer_email: customerEmail,
           }),
       metadata: {
         clerk_user_id: userId,
@@ -144,9 +171,10 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    console.log('[Checkout] Session created', { sessionId: session.id, clerk_user_id: userId });
     return NextResponse.json({ sessionId: session.id });
   } catch (error) {
-    console.error('Error creating checkout session:', error);
+    console.error('[Checkout] Error creating checkout session', error);
     return NextResponse.json(
       { error: 'Failed to create checkout session' },
       { status: 500 }

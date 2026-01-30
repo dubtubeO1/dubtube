@@ -10,12 +10,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get the Stripe customer ID from the user's subscription
+    // Stripe customer ID is set only after the user completes checkout at least once.
+    // "No Stripe customer found" is expected when checkout has never been completed.
     const { userData } = await request.json();
     
     if (!userData?.stripe_customer_id) {
       return NextResponse.json(
-        { error: 'No Stripe customer found. Please contact support.' },
+        { error: 'No Stripe customer found. Please complete a subscription checkout first, or contact support.' },
         { status: 400 }
       );
     }
