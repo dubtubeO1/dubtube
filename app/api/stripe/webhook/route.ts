@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe, STRIPE_PRICE_IDS, STRIPE_PRODUCT_IDS } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { upsertSubscription, updateUserSubscription } from '@/lib/user-sync';
+import { upsertSubscription } from '@/lib/user-sync';
 import Stripe from 'stripe';
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
@@ -20,7 +20,7 @@ function getPlanNameFromPriceId(priceId: string): string | null {
     return 'annual';
   }
   // Unknown price ID - log warning but return null (don't silently default)
-  console.warn(`⚠️ Unknown Price ID: ${priceId} - not matching any configured price IDs`);
+  console.warn('⚠️ Unknown Price ID - not matching any configured price IDs');
   return null;
 }
 
@@ -46,14 +46,14 @@ function getPlanNameFromStripeSubscription(subscription: any): {
       return { planName: 'annual', productId, priceId };
     }
     // Unknown product_id - log warning
-    console.warn(`⚠️ Unknown Stripe product_id: ${productId}`);
+    console.warn('⚠️ Unknown Stripe product_id - not in configured product IDs');
   }
 
   // Fallback to price_id mapping if product_id mapping failed
   if (priceId) {
     const planNameFromPrice = getPlanNameFromPriceId(priceId);
     if (planNameFromPrice) {
-      console.warn(`⚠️ Using price_id fallback for plan mapping (product_id: ${productId || 'missing'})`);
+      console.warn('⚠️ Using price_id fallback for plan mapping');
       return { planName: planNameFromPrice, productId, priceId };
     }
   }
@@ -67,7 +67,6 @@ function getPlanNameFromStripeSubscription(subscription: any): {
  * Handles subscription lifecycle and mirrors state to Supabase
  */
 export async function POST(request: NextRequest) {
-  console.log("🔔 Stripe webhook received");
   try {
     const body = await request.text();
     const signature = request.headers.get('stripe-signature');
@@ -78,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!webhookSecret) {
-      console.error('STRIPE_WEBHOOK_SECRET not configured');
+      console.error('[Webhook] STRIPE_WEBHOOK_SECRET not configured');
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 });
     }
 
@@ -87,12 +86,11 @@ export async function POST(request: NextRequest) {
     try {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
     } catch (err) {
-      console.error('Webhook signature verification failed:', err);
+      console.error('[Webhook] Signature verification failed:', err);
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
     }
 
-    console.log("📦 Stripe event type:", event.type);
-    console.log(`[Webhook] Received event: ${event.type} (id: ${event.id})`);
+    console.log(`[Webhook] Received ${event.type}`);
 
     // Handle idempotency: Check if we've processed this event before
     // Note: In production, you might want to store event IDs in a database
@@ -129,15 +127,8 @@ export async function POST(request: NextRequest) {
           const stripeCustomerId = stripeCustomerIdFromSession;
           
           if (clerkUserId && stripeCustomerId && subscription) {
-            console.log("🔍 Resolving user for subscription");
             const subData = subscription as any;
             const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
-            console.log("🧩 Subscription mapping", {
-              product_id: productId,
-              price_id: priceId,
-              resolved_plan_name: planName,
-            });
-            console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
@@ -147,53 +138,34 @@ export async function POST(request: NextRequest) {
               cancel_at_period_end: subData.cancel_at_period_end || false,
               plan_name: planName,
             });
-            
-            console.log(`[Webhook] Checkout completed for user ${clerkUserId}, subscription ${subscription.id}`);
+            console.log('[Webhook] checkout.session.completed handled');
           } else {
-            console.warn("⛔ Early return: missing clerkUserId, stripeCustomerId, or subscription");
+            console.warn('[Webhook] Missing clerk_user_id in metadata (checkout)');
           }
         } else {
-          console.warn("⛔ Early return: session is not subscription mode or missing subscription");
+          console.warn('[Webhook] Session not subscription mode or missing subscription');
         }
         break;
       }
 
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
-        if (event.type === 'customer.subscription.created') {
-          console.log("🧾 subscription.created received");
-        }
         const subscriptionEvent = event.data.object as Stripe.Subscription;
-        console.log("🆔 Stripe subscription ID:", subscriptionEvent.id);
-        console.log("👤 Stripe customer ID:", subscriptionEvent.customer);
-        console.log("🏷 subscription.metadata:", subscriptionEvent.metadata);
         const clerkUserId = subscriptionEvent.metadata?.clerk_user_id;
-        
+
         if (!clerkUserId) {
-          console.warn("⛔ Early return: missing clerk_user_id in metadata");
-          console.warn(`[Webhook] ${event.type} missing clerk_user_id in metadata`);
+          console.warn('[Webhook] Missing clerk_user_id in metadata');
           break;
         }
 
         // CRITICAL: Always fetch full subscription from Stripe API to ensure complete state
-        console.log("📥 Fetching full subscription from Stripe API...");
         const fullSubscription = await stripe.subscriptions.retrieve(subscriptionEvent.id);
-        console.log("✅ Full subscription retrieved");
         const subData = fullSubscription as any; // Stripe types may not include all fields
 
-        console.log("🔍 Resolving user for subscription");
-        
-        // Map subscription to plan name using product_id (preferred) or price_id (fallback)
         const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
-        
         const stripeCustomerId = subData.customer as string;
         const cancelAtPeriodEnd = subData.cancel_at_period_end || false;
-        console.log("🧩 Subscription mapping", {
-          product_id: productId,
-          price_id: priceId,
-          resolved_plan_name: planName,
-        });
-        console.log("⬆️ Calling upsertSubscription");
+
         await upsertSubscription(clerkUserId, {
           stripe_customer_id: stripeCustomerId,
           stripe_subscription_id: fullSubscription.id,
@@ -203,33 +175,20 @@ export async function POST(request: NextRequest) {
           cancel_at_period_end: cancelAtPeriodEnd,
           plan_name: planName,
         });
-        console.log(`[Webhook] Subscription ${fullSubscription.status} for user ${clerkUserId} (cancel_at_period_end: ${cancelAtPeriodEnd})`);
+        console.log('[Webhook] subscription synced');
         break;
       }
 
       case 'customer.subscription.deleted': {
         const subscriptionEvent = event.data.object as Stripe.Subscription;
         const clerkUserId = subscriptionEvent.metadata?.clerk_user_id;
-        
-        if (clerkUserId) {
-          // CRITICAL: Always fetch full subscription from Stripe API to ensure complete state
-          console.log("📥 Fetching full subscription from Stripe API...");
-          const fullSubscription = await stripe.subscriptions.retrieve(subscriptionEvent.id);
-          console.log("✅ Full subscription retrieved");
-          const subData = fullSubscription as any; // Stripe types may not include all fields
 
-          console.log("🔍 Resolving user for subscription");
-          
-          // Map subscription to plan name using product_id (preferred) or price_id (fallback)
+        if (clerkUserId) {
+          const fullSubscription = await stripe.subscriptions.retrieve(subscriptionEvent.id);
+          const subData = fullSubscription as any; // Stripe types may not include all fields
           const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
-          
           const stripeCustomerId = subData.customer as string;
-          console.log("🧩 Subscription mapping", {
-            product_id: productId,
-            price_id: priceId,
-            resolved_plan_name: planName,
-          });
-          console.log("⬆️ Calling upsertSubscription");
+
           await upsertSubscription(clerkUserId, {
             stripe_customer_id: stripeCustomerId,
             stripe_subscription_id: fullSubscription.id,
@@ -239,10 +198,9 @@ export async function POST(request: NextRequest) {
             cancel_at_period_end: false,
             plan_name: planName,
           });
-
-          console.log(`[Webhook] Subscription deleted for user ${clerkUserId}`);
+          console.log('[Webhook] subscription deleted – synced');
         } else {
-          console.warn("⛔ Early return: missing clerk_user_id in subscription.deleted metadata");
+          console.warn('[Webhook] Missing clerk_user_id in metadata (subscription.deleted)');
         }
         break;
       }
@@ -251,22 +209,15 @@ export async function POST(request: NextRequest) {
         const invoice = event.data.object as Stripe.Invoice;
         const invoiceData = invoice as any; // Stripe types may not include all fields
         const subscriptionId = invoiceData.subscription as string;
-        
+
         if (subscriptionId) {
           const subscription = await stripe.subscriptions.retrieve(subscriptionId);
           const clerkUserId = subscription.metadata?.clerk_user_id;
-          
+
           if (clerkUserId) {
-            console.log("🔍 Resolving user for subscription");
             const subData = subscription as any;
             const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
             const stripeCustomerId = subscription.customer as string;
-            console.log("🧩 Subscription mapping", {
-              product_id: productId,
-              price_id: priceId,
-              resolved_plan_name: planName,
-            });
-            console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
@@ -276,12 +227,7 @@ export async function POST(request: NextRequest) {
               cancel_at_period_end: subData.cancel_at_period_end || false,
               plan_name: planName,
             });
-            console.log(`[Webhook] Payment succeeded for user ${clerkUserId}`);
-          } else {
-            console.warn("⛔ Early return: missing clerk_user_id in invoice.payment_succeeded");
           }
-        } else {
-          console.warn("⛔ Early return: missing subscription ID in invoice.payment_succeeded");
         }
         break;
       }
@@ -290,22 +236,15 @@ export async function POST(request: NextRequest) {
         const invoice = event.data.object as Stripe.Invoice;
         const invoiceData = invoice as any; // Stripe types may not include all fields
         const subscriptionId = invoiceData.subscription as string;
-        
+
         if (subscriptionId) {
           const subscription = await stripe.subscriptions.retrieve(subscriptionId);
           const clerkUserId = subscription.metadata?.clerk_user_id;
-          
+
           if (clerkUserId) {
-            console.log("🔍 Resolving user for subscription");
             const subData = subscription as any;
             const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
             const stripeCustomerId = subscription.customer as string;
-            console.log("🧩 Subscription mapping", {
-              product_id: productId,
-              price_id: priceId,
-              resolved_plan_name: planName,
-            });
-            console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
@@ -315,18 +254,13 @@ export async function POST(request: NextRequest) {
               cancel_at_period_end: subData.cancel_at_period_end || false,
               plan_name: planName,
             });
-            console.log(`[Webhook] Payment failed for user ${clerkUserId}, status: ${subscription.status}`);
-          } else {
-            console.warn("⛔ Early return: missing clerk_user_id in invoice.payment_failed");
           }
-        } else {
-          console.warn("⛔ Early return: missing subscription ID in invoice.payment_failed");
         }
         break;
       }
 
       default:
-        console.log(`[Webhook] Unhandled event type: ${event.type}`);
+        break;
     }
 
     return NextResponse.json({ received: true });
