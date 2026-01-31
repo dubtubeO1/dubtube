@@ -158,8 +158,6 @@ export async function upsertSubscription(
     stripe_product_id: string | null
     stripe_price_id: string
     status: string
-    current_period_start: Date | null
-    current_period_end: Date | null
     cancel_at_period_end: boolean
     plan_name: string | null
   }
@@ -168,7 +166,6 @@ export async function upsertSubscription(
     stripe_subscription_id: subscriptionData.stripe_subscription_id,
     stripe_customer_id: subscriptionData.stripe_customer_id,
     status: subscriptionData.status,
-    current_period_end: subscriptionData.current_period_end?.toISOString() || null,
   });
   try {
     if (!supabaseAdmin) {
@@ -203,7 +200,7 @@ export async function upsertSubscription(
     }
 
     // Upsert subscription record: one row per user (UNIQUE on user_id).
-    // Re-subscribing after cancel updates the same row with new stripe_subscription_id, status, periods, etc.
+    // Re-subscribing after cancel updates the same row with new stripe_subscription_id, status, etc.
     const { error: subError } = await supabaseAdmin
       .from('subscriptions')
       .upsert(
@@ -215,8 +212,6 @@ export async function upsertSubscription(
           stripe_price_id: subscriptionData.stripe_price_id || null,
           status: subscriptionStatus,
           plan_name: subscriptionData.plan_name || null,
-          current_period_start: subscriptionData.current_period_start?.toISOString() || null,
-          current_period_end: subscriptionData.current_period_end?.toISOString() || null,
           cancel_at_period_end: subscriptionData.cancel_at_period_end,
           updated_at: new Date().toISOString(),
         },

@@ -82,7 +82,7 @@ CLERK_WEBHOOK_SECRET=whsec_your_webhook_secret_here
 
 ### `subscriptions` table
 - Stores subscription and billing information
-- Fields: id, user_id, stripe_subscription_id, status, plan_name, current_period_start, current_period_end
+- Fields: id, user_id, stripe_subscription_id, status, plan_name, stripe_customer_id, stripe_product_id, stripe_price_id, cancel_at_period_end, updated_at
 
 ### `usage_tracking` table
 - Tracks user usage statistics

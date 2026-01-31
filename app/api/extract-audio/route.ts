@@ -29,28 +29,21 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Check subscription status
-    if (userRow.subscription_status !== 'active' && userRow.subscription_status !== 'legacy') {
-      return NextResponse.json({ error: 'Subscription required' }, { status: 402 });
-    }
-
-    // Verify subscription is still within current_period_end
+    // Check subscription status (Stripe is source of truth for billing periods)
     const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
-      .select('current_period_end, status')
+      .select('status')
       .eq('user_id', userRow.id)
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
 
-    if (subscription?.current_period_end) {
-      const periodEnd = new Date(subscription.current_period_end);
-      const now = new Date();
-      
-      if (periodEnd <= now) {
-        // Period has ended, access revoked
-        return NextResponse.json({ error: 'Subscription period has ended' }, { status: 402 });
-      }
+    const hasActiveSubscription =
+      (subscription?.status === 'active' || subscription?.status === 'trialing') ||
+      (userRow.subscription_status === 'active' || userRow.subscription_status === 'legacy');
+
+    if (!hasActiveSubscription) {
+      return NextResponse.json({ error: 'Subscription required' }, { status: 402 });
     }
 
     const { videoId, browserFingerprint, clientIP } = await request.json();

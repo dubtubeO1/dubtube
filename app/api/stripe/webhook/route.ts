@@ -130,32 +130,13 @@ export async function POST(request: NextRequest) {
           
           if (clerkUserId && stripeCustomerId && subscription) {
             console.log("🔍 Resolving user for subscription");
-            const subData = subscription as any; // Stripe types may not include all fields
-            
-            // Map subscription to plan name using product_id (preferred) or price_id (fallback)
+            const subData = subscription as any;
             const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
-            
-            // Debug: Log raw Stripe timestamps before conversion
-            console.log("🕐 Raw Stripe timestamps:", {
-              current_period_start: subData.current_period_start,
-              current_period_end: subData.current_period_end,
-              cancel_at_period_end: subData.cancel_at_period_end,
-            });
-            // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
-            const periodStart = subData.current_period_start
-              ? new Date(subData.current_period_start * 1000)
-              : null;
-            const periodEnd = subData.current_period_end
-              ? new Date(subData.current_period_end * 1000)
-              : null;
-            
-            // Debug log before upsert
             console.log("🧩 Subscription mapping", {
               product_id: productId,
               price_id: priceId,
               resolved_plan_name: planName,
             });
-            
             console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
@@ -163,8 +144,6 @@ export async function POST(request: NextRequest) {
               stripe_product_id: productId,
               stripe_price_id: priceId || '',
               status: subscription.status,
-              current_period_start: periodStart,
-              current_period_end: periodEnd,
               cancel_at_period_end: subData.cancel_at_period_end || false,
               plan_name: planName,
             });
@@ -208,31 +187,12 @@ export async function POST(request: NextRequest) {
         const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
         
         const stripeCustomerId = subData.customer as string;
-
-        // Debug: Log raw Stripe timestamps before conversion
-        console.log("🕐 Raw Stripe timestamps:", {
-          current_period_start: subData.current_period_start,
-          current_period_end: subData.current_period_end,
-          cancel_at_period_end: subData.cancel_at_period_end,
-        });
-        // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
-        const periodStart = subData.current_period_start
-          ? new Date(subData.current_period_start * 1000)
-          : null;
-        const periodEnd = subData.current_period_end
-          ? new Date(subData.current_period_end * 1000)
-          : null;
-        
-        // Ensure cancel_at_period_end is correctly read from full subscription
         const cancelAtPeriodEnd = subData.cancel_at_period_end || false;
-        
-        // Debug log before upsert
         console.log("🧩 Subscription mapping", {
           product_id: productId,
           price_id: priceId,
           resolved_plan_name: planName,
         });
-        
         console.log("⬆️ Calling upsertSubscription");
         await upsertSubscription(clerkUserId, {
           stripe_customer_id: stripeCustomerId,
@@ -240,12 +200,9 @@ export async function POST(request: NextRequest) {
           stripe_product_id: productId,
           stripe_price_id: priceId || '',
           status: fullSubscription.status,
-          current_period_start: periodStart,
-          current_period_end: periodEnd,
           cancel_at_period_end: cancelAtPeriodEnd,
           plan_name: planName,
         });
-
         console.log(`[Webhook] Subscription ${fullSubscription.status} for user ${clerkUserId} (cancel_at_period_end: ${cancelAtPeriodEnd})`);
         break;
       }
@@ -267,39 +224,19 @@ export async function POST(request: NextRequest) {
           const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
           
           const stripeCustomerId = subData.customer as string;
-
-          // Debug: Log raw Stripe timestamps before conversion
-          console.log("🕐 Raw Stripe timestamps:", {
-            current_period_start: subData.current_period_start,
-            current_period_end: subData.current_period_end,
-            cancel_at_period_end: subData.cancel_at_period_end,
-          });
-          // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
-          const periodStart = subData.current_period_start
-            ? new Date(subData.current_period_start * 1000)
-            : null;
-          const periodEnd = subData.current_period_end
-            ? new Date(subData.current_period_end * 1000)
-            : null;
-          
-          // Debug log before upsert
           console.log("🧩 Subscription mapping", {
             product_id: productId,
             price_id: priceId,
             resolved_plan_name: planName,
           });
-          
           console.log("⬆️ Calling upsertSubscription");
-          // Subscription is deleted - mark as canceled
           await upsertSubscription(clerkUserId, {
             stripe_customer_id: stripeCustomerId,
             stripe_subscription_id: fullSubscription.id,
             stripe_product_id: productId,
             stripe_price_id: priceId || '',
             status: 'canceled',
-            current_period_start: periodStart,
-            current_period_end: periodEnd,
-            cancel_at_period_end: false, // Deleted subscriptions are not canceling at period end
+            cancel_at_period_end: false,
             plan_name: planName,
           });
 
@@ -321,47 +258,24 @@ export async function POST(request: NextRequest) {
           
           if (clerkUserId) {
             console.log("🔍 Resolving user for subscription");
-            const subData = subscription as any; // Stripe types may not include all fields
-            
-            // Map subscription to plan name using product_id (preferred) or price_id (fallback)
+            const subData = subscription as any;
             const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
-            
             const stripeCustomerId = subscription.customer as string;
-
-            // Debug: Log raw Stripe timestamps before conversion
-            console.log("🕐 Raw Stripe timestamps:", {
-              current_period_start: subData.current_period_start,
-              current_period_end: subData.current_period_end,
-              cancel_at_period_end: subData.cancel_at_period_end,
-            });
-            // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
-            const periodStart = subData.current_period_start
-              ? new Date(subData.current_period_start * 1000)
-              : null;
-            const periodEnd = subData.current_period_end
-              ? new Date(subData.current_period_end * 1000)
-              : null;
-            
-            // Debug log before upsert
             console.log("🧩 Subscription mapping", {
               product_id: productId,
               price_id: priceId,
               resolved_plan_name: planName,
             });
-            
             console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
               stripe_product_id: productId,
               stripe_price_id: priceId || '',
-              status: subscription.status, // Use subscription status, not invoice status
-              current_period_start: periodStart,
-              current_period_end: periodEnd,
+              status: subscription.status,
               cancel_at_period_end: subData.cancel_at_period_end || false,
               plan_name: planName,
             });
-
             console.log(`[Webhook] Payment succeeded for user ${clerkUserId}`);
           } else {
             console.warn("⛔ Early return: missing clerk_user_id in invoice.payment_succeeded");
@@ -383,47 +297,24 @@ export async function POST(request: NextRequest) {
           
           if (clerkUserId) {
             console.log("🔍 Resolving user for subscription");
-            const subData = subscription as any; // Stripe types may not include all fields
-            
-            // Map subscription to plan name using product_id (preferred) or price_id (fallback)
+            const subData = subscription as any;
             const { planName, productId, priceId } = getPlanNameFromStripeSubscription(subData);
-            
             const stripeCustomerId = subscription.customer as string;
-
-            // Debug: Log raw Stripe timestamps before conversion
-            console.log("🕐 Raw Stripe timestamps:", {
-              current_period_start: subData.current_period_start,
-              current_period_end: subData.current_period_end,
-              cancel_at_period_end: subData.cancel_at_period_end,
-            });
-            // Safe timestamp conversion: Stripe returns seconds, multiply by 1000 for milliseconds
-            const periodStart = subData.current_period_start
-              ? new Date(subData.current_period_start * 1000)
-              : null;
-            const periodEnd = subData.current_period_end
-              ? new Date(subData.current_period_end * 1000)
-              : null;
-            
-            // Debug log before upsert
             console.log("🧩 Subscription mapping", {
               product_id: productId,
               price_id: priceId,
               resolved_plan_name: planName,
             });
-            
             console.log("⬆️ Calling upsertSubscription");
             await upsertSubscription(clerkUserId, {
               stripe_customer_id: stripeCustomerId,
               stripe_subscription_id: subscription.id,
               stripe_product_id: productId,
               stripe_price_id: priceId || '',
-              status: subscription.status, // Stripe sets this to 'past_due' or 'unpaid'
-              current_period_start: periodStart,
-              current_period_end: periodEnd,
+              status: subscription.status,
               cancel_at_period_end: subData.cancel_at_period_end || false,
               plan_name: planName,
             });
-
             console.log(`[Webhook] Payment failed for user ${clerkUserId}, status: ${subscription.status}`);
           } else {
             console.warn("⛔ Early return: missing clerk_user_id in invoice.payment_failed");

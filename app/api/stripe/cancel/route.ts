@@ -6,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 /**
  * Cancel subscription endpoint
  * Sets cancel_at_period_end = true in Stripe
- * Access remains active until current_period_end
+ * Access remains active until period end (Stripe is source of truth).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -52,26 +52,22 @@ export async function POST(request: NextRequest) {
 
     // If already set to cancel, return early
     if (subscription.cancel_at_period_end) {
-      const subData = subscription as any; // Stripe types may not include all fields
       return NextResponse.json({
         message: 'Subscription is already set to cancel at period end',
         cancel_at_period_end: true,
-        current_period_end: new Date(subData.current_period_end * 1000).toISOString(),
       });
     }
 
     // Update subscription to cancel at period end
-    const updatedSubscription = await stripe.subscriptions.update(subscription.id, {
+    await stripe.subscriptions.update(subscription.id, {
       cancel_at_period_end: true,
     });
 
     console.log(`[Cancel] Subscription ${subscription.id} set to cancel at period end for user ${userId}`);
 
-    const subData = updatedSubscription as any; // Stripe types may not include all fields
     return NextResponse.json({
       message: 'Subscription will be canceled at the end of the current billing period',
       cancel_at_period_end: true,
-      current_period_end: new Date(subData.current_period_end * 1000).toISOString(),
     });
   } catch (error: any) {
     console.error('Error canceling subscription:', error);

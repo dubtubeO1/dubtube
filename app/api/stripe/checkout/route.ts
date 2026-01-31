@@ -82,26 +82,20 @@ export async function POST(request: NextRequest) {
     // ---------------------------------------------------------------------
     const { data: subscriptionRow } = await supabaseAdmin
       .from('subscriptions')
-      .select('status, current_period_end')
+      .select('status')
       .eq('user_id', userRow.id)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    const now = new Date();
     let hasActiveSubscription = false;
 
-    // Only treat as active if we have a subscription row with future period and active/trialing status
-    if (subscriptionRow?.current_period_end) {
-      const periodEnd = new Date(subscriptionRow.current_period_end);
-      const status = subscriptionRow.status;
-      if (periodEnd > now && (status === 'active' || status === 'trialing')) {
-        hasActiveSubscription = true;
-      }
+    // Block only when subscription row has status active or trialing
+    if (subscriptionRow && (subscriptionRow.status === 'active' || subscriptionRow.status === 'trialing')) {
+      hasActiveSubscription = true;
     }
 
-    // Fallback: if no subscription row, do NOT block (new user). Only trust users table
-    // when we have no subscription row if status is explicitly active/legacy (edge case).
+    // Fallback: if no subscription row, do NOT block (new user). Only trust users table when no row.
     if (
       !hasActiveSubscription &&
       subscriptionRow == null &&
@@ -114,7 +108,6 @@ export async function POST(request: NextRequest) {
       console.log('[Checkout] Guard: blocked – user already has active subscription', {
         clerk_user_id: userId,
         subscription_status: subscriptionRow?.status ?? userRow.subscription_status,
-        current_period_end: subscriptionRow?.current_period_end ?? null,
       });
       return NextResponse.json(
         {
