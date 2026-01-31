@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (userError || !userRow) {
-      console.warn('[Checkout] User not found after sync, retrying sync once', { userId, userError: userError?.message });
+      console.warn('[Checkout] User not found after sync, retrying sync once')
       await syncUserToSupabase(user);
       const retry = await supabaseAdmin
         .from('users')
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (userError || !userRow) {
-      console.error('[Checkout] User not found in billing system after sync', { userId, userError: userError?.message });
+      console.error('[Checkout] User not found in billing system after sync')
       return NextResponse.json(
         { error: 'Account not ready for checkout. Please try again in a moment or contact support.' },
         { status: 400 }
@@ -106,9 +106,8 @@ export async function POST(request: NextRequest) {
 
     if (hasActiveSubscription) {
       console.log('[Checkout] Guard: blocked – user already has active subscription', {
-        clerk_user_id: userId,
         subscription_status: subscriptionRow?.status ?? userRow.subscription_status,
-      });
+      })
       return NextResponse.json(
         {
           error: 'User already has an active subscription',
@@ -119,9 +118,8 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[Checkout] Guard: allowed – creating session', {
-      clerk_user_id: userId,
       has_stripe_customer_id: !!userRow.stripe_customer_id,
-    });
+    })
 
     const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://dubtube.net';
     const existingStripeCustomerId = userRow.stripe_customer_id || null;
@@ -134,7 +132,7 @@ export async function POST(request: NextRequest) {
       // Reuse existing Stripe customer (re-subscribe, one Clerk user → one Stripe customer)
     } else {
       if (!email) {
-        console.error('[Checkout] Email required for new customer', { userId });
+        console.error('[Checkout] Email required for new customer')
         return NextResponse.json(
           { error: 'Email is required to start checkout.' },
           { status: 400 }
@@ -182,10 +180,10 @@ export async function POST(request: NextRequest) {
 
     const session = await stripe.checkout.sessions.create(sessionParams);
 
-    console.log('[Checkout] Session created', { sessionId: session.id, clerk_user_id: userId });
+    console.log('[Checkout] Session created')
     return NextResponse.json({ sessionId: session.id });
   } catch (error) {
-    console.error('[Checkout] Error creating checkout session', error);
+    console.error('[Checkout] Error creating checkout session')
     return NextResponse.json(
       { error: 'Failed to create checkout session' },
       { status: 500 }

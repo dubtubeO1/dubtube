@@ -59,7 +59,7 @@ export async function GET(): Promise<NextResponse> {
       stripe_subscription_id: subscriptionData?.stripe_subscription_id || null,
     });
   } catch (err) {
-    console.error('Error fetching subscription:', err);
+    console.error('Error fetching subscription')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

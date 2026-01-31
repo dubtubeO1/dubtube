@@ -35,7 +35,7 @@ export async function POST(req: Request) {
       'svix-signature': svix_signature,
     }) as WebhookEvent
   } catch (err) {
-    console.error('Error verifying webhook:', err)
+    console.error('Error verifying webhook')
     return new Response('Error occured', {
       status: 400,
     })
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   if (eventType === 'user.created') {
     const { id, email_addresses, first_name, last_name } = evt.data
 
-    console.log('User created:', { id, email_addresses, first_name, last_name })
+    console.log('User created')
 
     // Sync user to Supabase using admin client
     try {
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
 
       const email = email_addresses[0]?.email_address
       if (!email) {
-        console.error('No email found for user:', id)
+        console.error('No email found for user')
         return new Response('No email found', { status: 400 })
       }
 
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
         .single()
 
       if (existingUser) {
-        console.log('User already exists in Supabase:', id)
+        console.log('User already exists in Supabase')
         return new Response('User already exists', { status: 200 })
       }
 
@@ -87,13 +87,13 @@ export async function POST(req: Request) {
         .single()
 
       if (error) {
-        console.error('Error creating user in Supabase:', error)
+        console.error('Error creating user in Supabase')
         return new Response('Database error', { status: 500 })
       }
 
-      console.log('Successfully synced user to Supabase:', newUser)
+      console.log('Successfully synced user to Supabase')
     } catch (error) {
-      console.error('Error syncing user to Supabase:', error)
+      console.error('Error syncing user to Supabase')
       return new Response('Internal server error', { status: 500 })
     }
   }
@@ -101,7 +101,7 @@ export async function POST(req: Request) {
   if (eventType === 'user.updated') {
     const { id, email_addresses, first_name, last_name } = evt.data
 
-    console.log('User updated:', { id, email_addresses, first_name, last_name })
+    console.log('User updated')
 
     // You can add logic here to update user data in Supabase if needed
   }
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
   if (eventType === 'user.deleted') {
     const { id } = evt.data
 
-    console.log('User deleted:', id)
+    console.log('User deleted')
 
     // Delete user from Supabase using admin client
     try {
@@ -126,13 +126,13 @@ export async function POST(req: Request) {
         .eq('clerk_user_id', id)
 
       if (error) {
-        console.error('Error deleting user from Supabase:', error)
+        console.error('Error deleting user from Supabase')
         return new Response('Database error', { status: 500 })
       }
 
-      console.log('Successfully deleted user from Supabase:', id)
+      console.log('Successfully deleted user from Supabase')
     } catch (error) {
-      console.error('Error deleting user from Supabase:', error)
+      console.error('Error deleting user from Supabase')
       return new Response('Internal server error', { status: 500 })
     }
   }

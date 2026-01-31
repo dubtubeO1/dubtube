@@ -27,7 +27,7 @@ export async function syncUserToSupabase(clerkUser: User): Promise<UserData | nu
     const email = clerkUser.emailAddresses[0]?.emailAddress
     
     if (!email) {
-      console.error('No email found for Clerk user:', clerkUser.id)
+      console.error('No email found for Clerk user')
       return null
     }
 
@@ -39,7 +39,7 @@ export async function syncUserToSupabase(clerkUser: User): Promise<UserData | nu
       .single()
 
     if (existingUser) {
-      console.log('User already exists in Supabase:', clerkUser.id)
+      console.log('User already exists in Supabase')
       return existingUser
     }
 
@@ -56,14 +56,14 @@ export async function syncUserToSupabase(clerkUser: User): Promise<UserData | nu
       .single()
 
     if (error) {
-      console.error('Error creating user in Supabase:', error)
+      console.error('Error creating user in Supabase')
       return null
     }
 
-    console.log('Successfully synced user to Supabase:', newUser)
+    console.log('Successfully synced user to Supabase')
     return newUser
   } catch (error) {
-    console.error('Error in syncUserToSupabase:', error)
+    console.error('Error in syncUserToSupabase')
     return null
   }
 }
@@ -92,13 +92,13 @@ export async function getUserFromSupabase(clerkUserId: string, jwt?: string): Pr
       .single()
 
     if (error) {
-      console.error('Error fetching user from Supabase:', error)
+      console.error('Error fetching user from Supabase')
       return null
     }
 
     return user
   } catch (error) {
-    console.error('Error in getUserFromSupabase:', error)
+    console.error('Error in getUserFromSupabase')
     return null
   }
 }
@@ -135,13 +135,13 @@ export async function updateUserSubscription(
       .eq('clerk_user_id', clerkUserId)
 
     if (error) {
-      console.error('Error updating user subscription:', error)
+      console.error('Error updating user subscription')
       return false
     }
 
     return true
   } catch (error) {
-    console.error('Error in updateUserSubscription:', error)
+    console.error('Error in updateUserSubscription')
     return false
   }
 }
@@ -162,11 +162,7 @@ export async function upsertSubscription(
     plan_name: string | null
   }
 ): Promise<boolean> {
-  console.log("💾 upsertSubscription called", {
-    stripe_subscription_id: subscriptionData.stripe_subscription_id,
-    stripe_customer_id: subscriptionData.stripe_customer_id,
-    status: subscriptionData.status,
-  });
+  console.log('💾 upsertSubscription called');
   try {
     if (!supabaseAdmin) {
       console.error('Supabase admin client not initialized')
@@ -181,8 +177,8 @@ export async function upsertSubscription(
       .single()
 
     if (userError || !user) {
-      console.warn("⛔ Early return: user not found for subscription upsert");
-      console.error('User not found for subscription upsert:', clerkUserId)
+      console.warn('Early return: user not found for subscription upsert')
+      console.error('User not found for subscription upsert')
       return false
     }
 
@@ -218,10 +214,9 @@ export async function upsertSubscription(
         { onConflict: 'user_id' }
       )
 
-    console.log("✅ Supabase subscription upsert attempted");
+    console.log('Supabase subscription upsert attempted')
     if (subError) {
-      console.error("❌ Supabase subscription upsert error:", subError)
-      console.error('Error upserting subscription:', subError)
+      console.error('Supabase subscription upsert error')
       return false
     }
 
@@ -237,13 +232,13 @@ export async function upsertSubscription(
       .eq('clerk_user_id', clerkUserId)
 
     if (userUpdateError) {
-      console.error('Error updating user record:', userUpdateError)
+      console.error('Error updating user record')
       // Don't fail if this update fails, subscription record is primary
     }
 
     return true
   } catch (error) {
-    console.error('Error in upsertSubscription:', error)
+    console.error('Error in upsertSubscription')
     return false
   }
 }

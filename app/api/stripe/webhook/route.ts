@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     try {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
     } catch (err) {
-      console.error('[Webhook] Signature verification failed:', err);
+      console.error('[Webhook] Signature verification failed')
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
     }
 
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
             })
             .eq('clerk_user_id', clerkUserIdFromSession);
           if (updateErr) {
-            console.error('[Webhook] Failed to sync stripe_customer_id to users:', updateErr);
+            console.error('[Webhook] Failed to sync stripe_customer_id to users')
           }
         }
 
@@ -265,7 +265,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error('[Webhook] Error processing webhook:', error);
+    console.error('[Webhook] Error processing webhook')
     return NextResponse.json(
       { error: 'Webhook handler failed' },
       { status: 500 }
