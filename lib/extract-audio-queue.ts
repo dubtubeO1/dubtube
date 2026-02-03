@@ -4,7 +4,8 @@
  * No 429: requests wait in queue until a slot is free.
  */
 
-const MAX_YTDLP_CONCURRENCY = Math.max(1, parseInt(process.env.MAX_YTDLP_CONCURRENCY || '2', 10));
+// Concurrency limit: controlled via MAX_YTDLP_CONCURRENCY env var (default 1).
+const maxConcurrency = Math.max(1, parseInt(process.env.MAX_YTDLP_CONCURRENCY || '1', 10));
 
 type Resolver = () => void;
 
@@ -14,7 +15,7 @@ class YtDlpSemaphore {
 
   /** Wait for a slot, then run. Call release() when done (success or failure). */
   async acquire(): Promise<void> {
-    if (this.active < MAX_YTDLP_CONCURRENCY) {
+    if (this.active < maxConcurrency) {
       this.active++;
       return;
     }
@@ -43,5 +44,3 @@ class YtDlpSemaphore {
 }
 
 export const ytDlpQueue = new YtDlpSemaphore();
-
-export { MAX_YTDLP_CONCURRENCY };
