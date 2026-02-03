@@ -5,20 +5,139 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { auth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { ytDlpQueue } from '@/lib/extract-audio-queue';
 
-export async function POST(request: Request): Promise<NextResponse> {
+/** Stream status events (NDJSON). */
+type StreamStatus = { status: 'queued' } | { status: 'processing' } | { status: 'done'; audioUrl: string } | { status: 'error'; error: string };
+
+/**
+ * Run the first yt-dlp attempt (and fallbacks). Returns NextResponse on success or throws NextResponse on error.
+ * Used inside the concurrency gate so only this part is limited.
+ */
+function runExtraction(
+  youtubeUrl: string,
+  outputPath: string,
+  filename: string,
+  ffmpegDir: string,
+  browserFingerprint: unknown,
+  realClientIP: string
+): Promise<NextResponse> {
+  return new Promise<NextResponse>((resolve, reject) => {
+    const useRealFingerprint = browserFingerprint && typeof browserFingerprint === 'object' && (browserFingerprint as { userAgent?: string }).userAgent;
+    let args: string[];
+
+    if (useRealFingerprint) {
+      const fp = browserFingerprint as { userAgent: string; language?: string; screenResolution?: string; timezone?: string; platform?: string; colorDepth?: string; pixelRatio?: string; hardwareConcurrency?: string; maxTouchPoints?: string; cookieEnabled?: string; doNotTrack?: string };
+      console.log('Using real browser fingerprint for extraction');
+      args = [
+        youtubeUrl,
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '-o', outputPath,
+        '--no-playlist', '--no-warnings', '--quiet', '--verbose',
+        '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
+        '--format', 'bestaudio[height<=720]/bestaudio',
+        '--retries', '3', '--fragment-retries', '3',
+        '--user-agent', fp.userAgent,
+        '--referer', 'https://www.youtube.com/',
+        '--add-header', `Accept-Language:${fp.language || 'en-US,en;q=0.9'}`,
+        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', 'Accept-Encoding:gzip, deflate, br',
+        '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
+        '--add-header', 'Cache-Control:no-cache',
+        '--add-header', 'Pragma:no-cache',
+        '--add-header', `X-Forwarded-For:${realClientIP}`,
+        '--add-header', `X-Real-IP:${realClientIP}`,
+        '--add-header', `X-Client-IP:${realClientIP}`,
+        '--add-header', `Screen-Resolution:${fp.screenResolution || ''}`,
+        '--add-header', `Timezone:${fp.timezone || ''}`,
+        '--add-header', `Platform:${fp.platform || ''}`,
+        '--add-header', `Color-Depth:${fp.colorDepth || ''}`,
+        '--add-header', `Pixel-Ratio:${fp.pixelRatio || ''}`,
+        '--add-header', `Hardware-Concurrency:${fp.hardwareConcurrency || ''}`,
+        '--add-header', `Max-Touch-Points:${fp.maxTouchPoints || ''}`,
+        '--add-header', `Cookie-Enabled:${fp.cookieEnabled || ''}`,
+        '--add-header', `Do-Not-Track:${fp.doNotTrack || ''}`,
+        '--sleep-interval', '2', '--max-sleep-interval', '5', '--sleep-requests', '2',
+        '--extractor-args', 'youtube:player_client=ios,android,web',
+        '--extractor-args', 'youtube:skip=dash,hls',
+        '--extractor-args', 'youtube:include_live_chat=false',
+        '--extractor-args', 'youtube:formats=missing_pot',
+        '--geo-bypass', '--geo-bypass-country', 'US',
+        '--check-formats'
+      ];
+    } else {
+      console.log('Using fallback bypass method');
+      args = [
+        youtubeUrl,
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '-o', outputPath,
+        '--no-playlist', '--no-warnings', '--quiet', '--verbose',
+        '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
+        '--format', 'bestaudio[height<=720]/bestaudio',
+        '--retries', '3', '--fragment-retries', '3',
+        '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
+        '--referer', 'https://www.google.com/',
+        '--add-header', 'Accept-Language:en-US,en;q=0.9',
+        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--add-header', 'Accept-Encoding:gzip, deflate, br',
+        '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
+        '--add-header', 'Cache-Control:no-cache',
+        '--add-header', 'Pragma:no-cache',
+        '--add-header', 'X-Forwarded-For:192.168.1.100',
+        '--add-header', 'X-Real-IP:192.168.1.100',
+        '--add-header', 'X-Client-IP:192.168.1.100',
+        '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
+        '--extractor-args', 'youtube:player_client=android',
+        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
+        '--extractor-args', 'youtube:include_live_chat=false',
+        '--extractor-args', 'youtube:formats=missing_pot',
+        '--geo-bypass', '--geo-bypass-country', 'US',
+        '--check-formats'
+      ];
+    }
+
+    if (ffmpegDir) {
+      args.splice(6, 0, '--ffmpeg-location', ffmpegDir);
+    }
+
+    const ytDlp = spawn('yt-dlp', args);
+    let errorOutput = '';
+
+    ytDlp.stdout.on('data', (data) => { console.log('yt-dlp output:', data.toString()); });
+    ytDlp.stderr.on('data', (data) => { errorOutput += data.toString(); console.log('yt-dlp error:', data.toString()); });
+
+    ytDlp.on('close', (code) => {
+      if (code === 0) {
+        resolve(NextResponse.json({ audioUrl: `/audio/${filename}` }));
+      } else {
+        console.log('First attempt failed, trying alternative format...');
+        tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP)
+          .then(resolve)
+          .catch(() => {
+            console.log('Alternative format failed, trying third fallback...');
+            tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP).then(resolve).catch(reject);
+          });
+      }
+    });
+
+    ytDlp.on('error', (error) => {
+      console.error('yt-dlp process error:', error);
+      reject(NextResponse.json({ error: 'Failed to start audio extraction process', details: (error as Error).message }, { status: 500 }));
+    });
+  });
+}
+
+export async function POST(request: Request): Promise<Response> {
   try {
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check subscription status and access
     if (!supabaseAdmin) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
-    
-    // Get user and subscription data
+
     const { data: userRow } = await supabaseAdmin
       .from('users')
       .select('id, subscription_status')
@@ -29,7 +148,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Check subscription status (Stripe is source of truth for billing periods)
     const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
       .select('status')
@@ -47,172 +165,74 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const { videoId, browserFingerprint, clientIP } = await request.json();
-    
+
     if (!videoId) {
       return NextResponse.json({ error: 'Video ID is required' }, { status: 400 });
     }
 
-    // Get real client IP from request headers
-    const realClientIP = request.headers.get('x-forwarded-for') || 
-                        request.headers.get('x-real-ip') || 
-                        request.headers.get('cf-connecting-ip') ||
-                        clientIP || 
-                        'unknown';
-    
-    console.log('Received request for video ID:', videoId);
-    console.log('Browser fingerprint available:', !!browserFingerprint);
-    console.log('Client IP from headers:', realClientIP);
+    const realClientIP =
+      request.headers.get('x-forwarded-for') ||
+      request.headers.get('x-real-ip') ||
+      request.headers.get('cf-connecting-ip') ||
+      clientIP ||
+      'unknown';
 
-    // Generate a unique filename
     const filename = `${uuidv4()}.mp3`;
     const outputPath = path.join(process.cwd(), 'public', 'audio', filename);
-    
-    console.log('Output path:', outputPath);
-
-    // Ensure the audio directory exists
     await mkdir(path.join(process.cwd(), 'public', 'audio'), { recursive: true });
-    console.log('Ensured audio directory exists');
 
-    // Construct the YouTube URL
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    console.log('YouTube URL:', youtubeUrl);
-
-    // Get the ffmpeg directory path - use system PATH in production
     const ffmpegDir = process.env.NODE_ENV === 'production' ? '' : '/opt/homebrew/bin';
-    console.log('Using ffmpeg directory:', ffmpegDir || 'system PATH');
 
-    return new Promise<NextResponse>((resolve, reject) => {
-      // Use real browser fingerprint if available, otherwise fallback to our bypass
-      const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
-      
-      let args;
-      
-      if (useRealFingerprint) {
-        console.log('Using real browser fingerprint for extraction');
-        args = [
-          youtubeUrl,
-          '-x', '--audio-format', 'mp3', '--audio-quality', '0',
-          '-o', outputPath,
-          '--no-playlist', '--no-warnings', '--quiet', '--verbose',
-          '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
-          '--format', 'bestaudio[height<=720]/bestaudio',
-          '--retries', '3', '--fragment-retries', '3',
-          '--user-agent', browserFingerprint.userAgent, // Real user's browser
-          '--referer', 'https://www.youtube.com/', // YouTube referer for real users
-          '--add-header', `Accept-Language:${browserFingerprint.language}`, // Real user's language
-          '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          '--add-header', 'Accept-Encoding:gzip, deflate, br',
-          '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
-          '--add-header', 'Cache-Control:no-cache',
-          '--add-header', 'Pragma:no-cache',
-          '--add-header', `X-Forwarded-For:${realClientIP}`, // Real user's IP
-          '--add-header', `X-Real-IP:${realClientIP}`, // Real user's IP
-          '--add-header', `X-Client-IP:${realClientIP}`, // Real user's IP
-          '--add-header', `Screen-Resolution:${browserFingerprint.screenResolution}`,
-          '--add-header', `Timezone:${browserFingerprint.timezone}`,
-          '--add-header', `Platform:${browserFingerprint.platform}`,
-          '--add-header', `Color-Depth:${browserFingerprint.colorDepth}`,
-          '--add-header', `Pixel-Ratio:${browserFingerprint.pixelRatio}`,
-          '--add-header', `Hardware-Concurrency:${browserFingerprint.hardwareConcurrency}`,
-          '--add-header', `Max-Touch-Points:${browserFingerprint.maxTouchPoints}`,
-          '--add-header', `Cookie-Enabled:${browserFingerprint.cookieEnabled}`,
-          '--add-header', `Do-Not-Track:${browserFingerprint.doNotTrack}`,
-          '--sleep-interval', '2', '--max-sleep-interval', '5', '--sleep-requests', '2',
-          '--extractor-args', 'youtube:player_client=ios,android,web',
-          '--extractor-args', 'youtube:skip=dash,hls',
-          '--extractor-args', 'youtube:include_live_chat=false',
-          '--extractor-args', 'youtube:formats=missing_pot',
-          '--geo-bypass', '--geo-bypass-country', 'US',
-          '--check-formats'
-        ];
-      } else {
-        console.log('Using fallback bypass method');
-        args = [
-          youtubeUrl,
-          '-x', '--audio-format', 'mp3', '--audio-quality', '0',
-          '-o', outputPath,
-          '--no-playlist', '--no-warnings', '--quiet', '--verbose',
-          '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
-          '--format', 'bestaudio[height<=720]/bestaudio',
-          '--retries', '3', '--fragment-retries', '3',
-          '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
-          '--referer', 'https://www.google.com/',
-          '--add-header', 'Accept-Language:en-US,en;q=0.9',
-          '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          '--add-header', 'Accept-Encoding:gzip, deflate, br',
-          '--add-header', 'Accept-Charset:UTF-8,*;q=0.7',
-          '--add-header', 'Cache-Control:no-cache',
-          '--add-header', 'Pragma:no-cache',
-          '--add-header', 'X-Forwarded-For:192.168.1.100',
-          '--add-header', 'X-Real-IP:192.168.1.100',
-          '--add-header', 'X-Client-IP:192.168.1.100',
-          '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
-          '--extractor-args', 'youtube:player_client=android',
-          '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
-          '--extractor-args', 'youtube:include_live_chat=false',
-          '--extractor-args', 'youtube:formats=missing_pot',
-          '--geo-bypass', '--geo-bypass-country', 'US',
-          '--check-formats'
-        ];
-      }
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let acquired = false;
+        const send = (event: StreamStatus) => {
+          controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
+        };
 
-      // Only add ffmpeg-location if we have a specific path
-      if (ffmpegDir) {
-        args.splice(6, 0, '--ffmpeg-location', ffmpegDir);
-      }
+        try {
+          send({ status: 'queued' });
+          await ytDlpQueue.acquire();
+          acquired = true;
+          send({ status: 'processing' });
 
-      const ytDlp = spawn('yt-dlp', args);
-
-      let output = '';
-      let errorOutput = '';
-
-      ytDlp.stdout.on('data', (data) => {
-        const chunk = data.toString();
-        output += chunk;
-        console.log('yt-dlp output:', chunk);
-      });
-
-      ytDlp.stderr.on('data', (data) => {
-        const chunk = data.toString();
-        errorOutput += chunk;
-        console.log('yt-dlp error:', chunk);
-      });
-
-      ytDlp.on('close', (code) => {
-        console.log('yt-dlp process exited with code', code);
-        
-        if (code === 0) {
-          // Return the relative path to the audio file
-          const relativePath = `/audio/${filename}`;
-          resolve(NextResponse.json({ audioUrl: relativePath }));
-        } else {
-          // Try alternative approach with different format
-          console.log('First attempt failed, trying alternative format...');
-          tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP)
-            .then(resolve)
-            .catch((altError) => {
-              console.log('Alternative format failed, trying third fallback...');
-              tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP)
-                .then(resolve)
-                .catch(reject);
-            });
+          const res = await runExtraction(youtubeUrl, outputPath, filename, ffmpegDir, browserFingerprint, realClientIP);
+          const data = (await res.json()) as { audioUrl?: string; error?: string; details?: string };
+          if (data.audioUrl) {
+            send({ status: 'done', audioUrl: data.audioUrl });
+          } else {
+            send({ status: 'error', error: data.error || data.details || 'Extraction failed' });
+          }
+        } catch (err) {
+          let errMsg = err instanceof Error ? err.message : 'Extraction failed';
+          const errorRes = err as NextResponse | undefined;
+          if (errorRes && typeof errorRes.json === 'function') {
+            try {
+              const body = (await errorRes.json()) as { error?: string; details?: string };
+              errMsg = body.error || body.details || errMsg;
+            } catch {
+              // use errMsg from above
+            }
+          }
+          send({ status: 'error', error: errMsg });
+        } finally {
+          if (acquired) ytDlpQueue.release();
+          controller.close();
         }
-      });
+      },
+    });
 
-      ytDlp.on('error', (error) => {
-        console.error('yt-dlp process error:', error);
-        reject(NextResponse.json({ 
-          error: 'Failed to start audio extraction process',
-          details: error.message
-        }, { status: 500 }));
-      });
+    return new Response(stream, {
+      headers: { 'Content-Type': 'application/x-ndjson' },
     });
   } catch (error) {
     console.error('Error in extract-audio:', error);
-    return NextResponse.json({ 
-      error: 'Failed to process audio extraction',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to process audio extraction', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
   }
 }
 

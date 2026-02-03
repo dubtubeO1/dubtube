@@ -287,16 +287,51 @@ export default function Home() {
       });
 
       if (!extractResponse.ok) {
-        const extractError = await extractResponse.json();
-        setError(extractError.error || 'Failed to start audio extraction process');
+        const extractError = await extractResponse.json().catch(() => ({}));
+        setError((extractError as { error?: string }).error || 'Failed to start audio extraction process');
         resetTurnstile();
         return;
       }
 
-      const extractResult = await extractResponse.json();
-      console.log('Audio extraction started successfully:', extractResult);
+      // Consume NDJSON stream: queued → processing → done | error
+      const reader = extractResponse.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let extractError: string | null = null;
+      let done = false;
+      if (reader) {
+        while (true) {
+          const { done: streamDone, value } = await reader.read();
+          if (streamDone) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const event = JSON.parse(line) as { status: string; audioUrl?: string; error?: string };
+              if (event.status === 'done') done = true;
+              else if (event.status === 'error') extractError = event.error ?? 'Extraction failed';
+            } catch {
+              /* skip */
+            }
+          }
+          if (done || extractError) break;
+        }
+      }
 
-      // Audio extraction started successfully, proceed to video page
+      if (extractError) {
+        setError(extractError);
+        resetTurnstile();
+        return;
+      }
+      if (!done) {
+        setError('Failed to extract audio');
+        resetTurnstile();
+        return;
+      }
+
+      // Audio extraction completed, proceed to video page (pipeline continues there)
       router.push(`/video/${videoId}?lang=${language}`);
     } catch (err) {
       setError('Failed to process video. Please try again.');

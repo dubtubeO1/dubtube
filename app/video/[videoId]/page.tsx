@@ -45,6 +45,9 @@ export default function VideoPage() {
     { id: 'finalize', label: 'Finalizing', status: 'pending' },
   ]);
 
+  // Extract step substate: queued (waiting for slot) vs processing (yt-dlp running)
+  const [extractStepStatus, setExtractStepStatus] = useState<'idle' | 'queued' | 'processing'>('idle');
+
   // Error handling with redirect timeout
   const redirectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -395,25 +398,63 @@ export default function VideoPage() {
           prev.map(step => ({ ...step, status: 'pending' }))
         );
 
-        // Step 1: Extract audio
+        // Step 1: Extract audio (streaming NDJSON: queued → processing → done | error)
         updateProgressStep('extract', 'active');
+        setExtractStepStatus('idle');
         const response = await fetch('/api/extract-audio', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ videoId }),
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
+          const errorData = await response.json().catch(() => ({}));
           updateProgressStep('extract', 'error');
-          handleError(errorData.error || 'Failed to extract audio');
+          handleError((errorData as { error?: string }).error || 'Failed to extract audio');
           return;
         }
 
-        const data = await response.json();
-        setAudioUrl(data.audioUrl);
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let audioUrl: string | null = null;
+        let extractError: string | null = null;
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const event = JSON.parse(line) as { status: string; audioUrl?: string; error?: string };
+                if (event.status === 'queued') setExtractStepStatus('queued');
+                else if (event.status === 'processing') setExtractStepStatus('processing');
+                else if (event.status === 'done' && event.audioUrl) audioUrl = event.audioUrl;
+                else if (event.status === 'error') extractError = event.error ?? 'Extraction failed';
+              } catch {
+                // skip malformed line
+              }
+            }
+          }
+        }
+
+        if (extractError) {
+          updateProgressStep('extract', 'error');
+          handleError(extractError);
+          return;
+        }
+        if (!audioUrl) {
+          updateProgressStep('extract', 'error');
+          handleError('Failed to extract audio');
+          return;
+        }
+
+        setExtractStepStatus('idle');
+        setAudioUrl(audioUrl);
         updateProgressStep('extract', 'completed');
 
         // Step 2: Start transcription
@@ -424,7 +465,7 @@ export default function VideoPage() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ audioPath: data.audioUrl }),
+          body: JSON.stringify({ audioPath: audioUrl }),
         });
 
         if (!transcribeResponse.ok) {
@@ -477,7 +518,7 @@ export default function VideoPage() {
           body: JSON.stringify({
             transcription: transcribeData.transcription,
             translatedTranscription: translatedSegments,
-            audioPath: data.audioUrl,
+            audioPath: audioUrl,
           }),
         });
         if (dubResponse.ok) {
@@ -575,7 +616,9 @@ export default function VideoPage() {
                   step.status === 'error' ? 'text-red-600 dark:text-red-400' :
                   'text-slate-500 dark:text-slate-400'
                 }`}>
-                  {step.label}
+                  {step.id === 'extract' && step.status === 'active' && extractStepStatus === 'queued'
+                    ? 'You are in queue, waiting for available processing capacity…'
+                    : step.label}
                 </span>
               </div>
             ))}
