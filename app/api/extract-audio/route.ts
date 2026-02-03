@@ -177,6 +177,36 @@ export async function POST(request: Request): Promise<Response> {
       clientIP ||
       'unknown';
 
+    // -------------------------------------------------------------------------
+    // FAKE_EXTRACTION_MODE: test queue + streaming without yt-dlp or filesystem.
+    // Set FAKE_EXTRACTION_MODE=true in .env to verify queue behavior in isolation.
+    // Remove this block when done testing.
+    // -------------------------------------------------------------------------
+    if (process.env.FAKE_EXTRACTION_MODE === 'true') {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          let acquired = false;
+          const send = (event: StreamStatus) => controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
+          try {
+            send({ status: 'queued' });
+            console.log(`[QUEUE TEST] Request queued. Active: ${ytDlpQueue.activeCount}, Waiting: ${ytDlpQueue.queueLength}`);
+            await ytDlpQueue.acquire();
+            acquired = true;
+            console.log(`[QUEUE TEST] Processing started. Active: ${ytDlpQueue.activeCount}, Waiting: ${ytDlpQueue.queueLength}`);
+            send({ status: 'processing' });
+            await new Promise((r) => setTimeout(r, 20000));
+            send({ status: 'done', audioUrl: '/audio/fake-test.mp3' });
+            console.log(`[QUEUE TEST] Processing finished. Active: ${ytDlpQueue.activeCount}, Waiting: ${ytDlpQueue.queueLength}`);
+          } finally {
+            if (acquired) ytDlpQueue.release();
+            controller.close();
+          }
+        },
+      });
+      return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson' } });
+    }
+
     const filename = `${uuidv4()}.mp3`;
     const outputPath = path.join(process.cwd(), 'public', 'audio', filename);
     await mkdir(path.join(process.cwd(), 'public', 'audio'), { recursive: true });
