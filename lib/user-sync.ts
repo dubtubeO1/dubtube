@@ -177,7 +177,7 @@ export async function upsertSubscription(
       .single()
 
     if (userError || !user) {
-      console.warn('Early return: user not found for subscription upsert')
+      console.warn('⛔ Early return: user not found for subscription upsert')
       console.error('User not found for subscription upsert')
       return false
     }
@@ -214,9 +214,9 @@ export async function upsertSubscription(
         { onConflict: 'user_id' }
       )
 
-    console.log('Supabase subscription upsert attempted')
+    console.log('✅ Supabase subscription upsert attempted')
     if (subError) {
-      console.error('Supabase subscription upsert error')
+      console.error('❌ Supabase subscription upsert error')
       return false
     }
 
