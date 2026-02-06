@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { auth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { ytDlpQueue } from '@/lib/extract-audio-queue';
+import { getRandomProxyUrl } from '@/lib/proxy';
 
 /** Stream status events (NDJSON). */
 type StreamStatus = { status: 'queued' } | { status: 'processing' } | { status: 'done'; audioUrl: string } | { status: 'error'; error: string };
@@ -13,6 +14,8 @@ type StreamStatus = { status: 'queued' } | { status: 'processing' } | { status: 
 /**
  * Run the first yt-dlp attempt (and fallbacks). Returns NextResponse on success or throws NextResponse on error.
  * Used inside the concurrency gate so only this part is limited.
+ *
+ * proxyUrl is chosen once per job and reused for all fallbacks.
  */
 function runExtraction(
   youtubeUrl: string,
@@ -20,7 +23,8 @@ function runExtraction(
   filename: string,
   ffmpegDir: string,
   browserFingerprint: unknown,
-  realClientIP: string
+  realClientIP: string,
+  proxyUrl: string | null
 ): Promise<NextResponse> {
   return new Promise<NextResponse>((resolve, reject) => {
     const useRealFingerprint = browserFingerprint && typeof browserFingerprint === 'object' && (browserFingerprint as { userAgent?: string }).userAgent;
@@ -29,9 +33,10 @@ function runExtraction(
     if (useRealFingerprint) {
       const fp = browserFingerprint as { userAgent: string; language?: string; screenResolution?: string; timezone?: string; platform?: string; colorDepth?: string; pixelRatio?: string; hardwareConcurrency?: string; maxTouchPoints?: string; cookieEnabled?: string; doNotTrack?: string };
       console.log('Using real browser fingerprint for extraction');
-      args = [
+      const baseArgs: string[] = [
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
         '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
@@ -63,13 +68,15 @@ function runExtraction(
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
         '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats'
+        '--check-formats',
       ];
+      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     } else {
       console.log('Using fallback bypass method');
-      args = [
+      const baseArgs: string[] = [
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
         '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
@@ -92,12 +99,9 @@ function runExtraction(
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
         '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats'
+        '--check-formats',
       ];
-    }
-
-    if (ffmpegDir) {
-      args.splice(6, 0, '--ffmpeg-location', ffmpegDir);
+      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     }
 
     const ytDlp = spawn('yt-dlp', args);
@@ -115,7 +119,7 @@ function runExtraction(
           .then(resolve)
           .catch(() => {
             console.log('Alternative format failed, trying third fallback...');
-            tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP).then(resolve).catch(reject);
+            tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP, proxyUrl).then(resolve).catch(reject);
           });
       }
     });
@@ -198,7 +202,23 @@ export async function POST(request: Request): Promise<Response> {
           acquired = true;
           send({ status: 'processing' });
 
-          const res = await runExtraction(youtubeUrl, outputPath, filename, ffmpegDir, browserFingerprint, realClientIP);
+          // Choose one proxy per job and reuse for all fallbacks.
+          const proxyUrl = getRandomProxyUrl();
+          const maskedProxy =
+            proxyUrl && proxyUrl.includes('@')
+              ? proxyUrl.replace(/\/\/[^@]+@/, '//***:***@')
+              : proxyUrl;
+          console.log('[yt-dlp] Using proxy:', maskedProxy);
+
+          const res = await runExtraction(
+            youtubeUrl,
+            outputPath,
+            filename,
+            ffmpegDir,
+            browserFingerprint,
+            realClientIP,
+            proxyUrl
+          );
           const data = (await res.json()) as { audioUrl?: string; error?: string; details?: string };
           if (data.audioUrl) {
             send({ status: 'done', audioUrl: data.audioUrl });
@@ -237,7 +257,14 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 // Alternative format extraction function
-async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmpegDir: string, browserFingerprint?: any, clientIP?: string): Promise<NextResponse> {
+async function tryAlternativeFormat(
+  youtubeUrl: string,
+  outputPath: string,
+  ffmpegDir: string,
+  browserFingerprint?: any,
+  clientIP?: string,
+  proxyUrl?: string | null
+): Promise<NextResponse> {
   return new Promise<NextResponse>((resolve, reject) => {
     // Use browser fingerprint if available, otherwise use fallback
     const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
@@ -246,9 +273,10 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
     
     if (useRealFingerprint) {
       console.log('Using real browser fingerprint for alternative format');
-      args = [
+      const baseArgs: string[] = [
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
         '--format', 'bestaudio[height<=720]/bestaudio',
@@ -272,13 +300,15 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
         '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats'
+        '--check-formats',
       ];
+      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     } else {
       console.log('Using fallback bypass for alternative format');
-      args = [
+      const baseArgs: string[] = [
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
         '--format', 'bestaudio[height<=720]/bestaudio',
@@ -300,13 +330,9 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
         '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats'
+        '--check-formats',
       ];
-    }
-
-    // Only add ffmpeg-location if we have a specific path
-    if (ffmpegDir) {
-      args.splice(6, 0, '--ffmpeg-location', ffmpegDir);
+      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     }
 
     const ytDlp = spawn('yt-dlp', args);
@@ -361,7 +387,14 @@ async function tryAlternativeFormat(youtubeUrl: string, outputPath: string, ffmp
 }
 
 // Third fallback extraction function - most aggressive approach
-async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDir: string, browserFingerprint?: any, clientIP?: string): Promise<NextResponse> {
+async function tryThirdFallback(
+  youtubeUrl: string,
+  outputPath: string,
+  ffmpegDir: string,
+  browserFingerprint?: any,
+  clientIP?: string,
+  proxyUrl?: string | null
+): Promise<NextResponse> {
   return new Promise<NextResponse>((resolve, reject) => {
     // Use browser fingerprint if available, otherwise use fallback
     const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
@@ -370,9 +403,10 @@ async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDi
     
     if (useRealFingerprint) {
       console.log('Using real browser fingerprint for third fallback');
-      args = [
+      const baseArgs: string[] = [
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
         '--format', 'bestaudio[height<=720]/bestaudio',
@@ -396,13 +430,15 @@ async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDi
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
         '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats'
+        '--check-formats',
       ];
+      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     } else {
       console.log('Using fallback bypass for third fallback');
-      args = [
+      const baseArgs: string[] = [
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
         '--format', 'bestaudio[height<=720]/bestaudio',
@@ -424,13 +460,9 @@ async function tryThirdFallback(youtubeUrl: string, outputPath: string, ffmpegDi
         '--extractor-args', 'youtube:include_live_chat=false',
         '--extractor-args', 'youtube:formats=missing_pot',
         '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats'
+        '--check-formats',
       ];
-    }
-
-    // Only add ffmpeg-location if we have a specific path
-    if (ffmpegDir) {
-      args.splice(6, 0, '--ffmpeg-location', ffmpegDir);
+      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     }
 
     const ytDlp = spawn('yt-dlp', args);
