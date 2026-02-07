@@ -1,19 +1,19 @@
-# yt-dlp: use edge (git master) instead of nix stable to fix YouTube nsig/player JS breakage.
-# pip is required for python -m pip; nix python311 does not include pip by default.
+# yt-dlp: use edge (master build) instead of nix stable to fix YouTube nsig/player JS breakage.
+# Use standalone binary from GitHub (no Python/pip; Nix python311 does not include pip).
 [phases.setup]
-nixPkgs = ["nodejs_18", "python311", "python311Packages.pip", "ffmpeg"]
+nixPkgs = ["nodejs_18", "ffmpeg", "curl"]
 
 [phases.install]
 cmds = [
   "npm install",
-  "python -m pip install --upgrade 'git+https://github.com/yt-dlp/yt-dlp.git'"
+  "mkdir -p bin && curl -L -o bin/yt-dlp 'https://github.com/yt-dlp/yt-dlp-master-builds/releases/latest/download/yt-dlp' && chmod +x bin/yt-dlp"
 ]
 
 [phases.build]
 cmds = ["npm run build"]
 
 [start]
-cmd = "npm start"
+cmd = "export PATH=\"/app/bin:$PATH\" && npm start"
 
 [variables]
 NODE_ENV = "production"
