@@ -1,7 +1,7 @@
 # yt-dlp: use edge (master build) instead of nix stable to fix YouTube nsig/player JS breakage.
-# Use standalone binary from GitHub (no Python/pip; Nix python311 does not include pip).
+# Standalone binary at /app/bin/yt-dlp is a Python script (#!/usr/bin/env python3); python3 required at runtime.
 [phases.setup]
-nixPkgs = ["nodejs_18", "ffmpeg", "curl"]
+nixPkgs = ["nodejs_18", "python3", "ffmpeg", "curl"]
 
 [phases.install]
 cmds = [
