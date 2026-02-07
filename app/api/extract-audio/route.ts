@@ -43,7 +43,7 @@ function runExtraction(
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
         '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
-        '--format', 'bestaudio[height<=720]/bestaudio',
+        '--format', 'bestaudio',
         '--retries', '3', '--fragment-retries', '3',
         '--user-agent', fp.userAgent,
         '--referer', 'https://www.youtube.com/',
@@ -63,7 +63,7 @@ function runExtraction(
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
         '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
-        '--format', 'bestaudio[height<=720]/bestaudio',
+        '--format', 'bestaudio',
         '--retries', '3', '--fragment-retries', '3',
         '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
         '--referer', 'https://www.youtube.com/',
@@ -85,13 +85,10 @@ function runExtraction(
       if (code === 0) {
         resolve(NextResponse.json({ audioUrl: `/audio/${filename}` }));
       } else {
-        console.log('First attempt failed, trying alternative format...');
-        tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir, cookiePath, browserFingerprint, realClientIP, proxyUrl)
-          .then(resolve)
-          .catch(() => {
-            console.log('Alternative format failed, trying third fallback...');
-            tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, cookiePath, browserFingerprint, realClientIP, proxyUrl).then(resolve).catch(reject);
-          });
+        reject(NextResponse.json(
+          { error: 'yt-dlp failed (format-debug: no retry)', details: errorOutput },
+          { status: 500 }
+        ));
       }
     });
 
