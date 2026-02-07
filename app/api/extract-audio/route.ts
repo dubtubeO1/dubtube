@@ -12,9 +12,8 @@ import { ensureYtCookies } from '@/lib/ensureYtCookies';
 /** Stream status events (NDJSON). */
 type StreamStatus = { status: 'queued' } | { status: 'processing' } | { status: 'done'; audioUrl: string } | { status: 'error'; error: string } | { status: 'debug'; stdout?: string; stderr?: string; exitCode?: number };
 
-/** Invoke yt-dlp via Python module (no binary on PATH in Railway/Nixpacks). */
-const YTDLP_CMD = 'python';
-const YTDLP_BASE = ['-m', 'yt_dlp'];
+/** yt-dlp binary path (installed at build in Railway/Nixpacks; not on PATH). */
+const YTDLP_PATH = '/app/bin/yt-dlp';
 
 /** Log yt-dlp version once per process (edge required for YouTube nsig/player JS). */
 let ytDlpVersionLogged = false;
@@ -22,7 +21,7 @@ function logYtDlpVersionOnce(): void {
   if (ytDlpVersionLogged) return;
   ytDlpVersionLogged = true;
   try {
-    const v = execSync('python -m yt_dlp --version', { encoding: 'utf-8' });
+    const v = execSync(`${YTDLP_PATH} --version`, { encoding: 'utf-8' });
     console.log('[yt-dlp] version:', v.trim());
   } catch (e) {
     console.warn('[yt-dlp] version check failed:', (e as Error).message);
@@ -96,7 +95,7 @@ function runExtraction(
 
     logYtDlpVersionOnce();
     console.log('[yt-dlp] Diagnostic run: proxy disabled');
-    const ytDlp = spawn(YTDLP_CMD, [...YTDLP_BASE, ...args]);
+    const ytDlp = spawn(YTDLP_PATH, args);
     let errorOutput = '';
 
     ytDlp.stdout.on('data', (data) => { console.log('yt-dlp output:', data.toString()); });
@@ -310,7 +309,7 @@ async function tryAlternativeFormat(
       args = baseArgs;
     }
 
-    const ytDlp = spawn(YTDLP_CMD, [...YTDLP_BASE, ...args]);
+    const ytDlp = spawn(YTDLP_PATH, args);
 
     let output = '';
     let errorOutput = '';
@@ -419,7 +418,7 @@ async function tryThirdFallback(
       args = baseArgs;
     }
 
-    const ytDlp = spawn(YTDLP_CMD, [...YTDLP_BASE, ...args]);
+    const ytDlp = spawn(YTDLP_PATH, args);
 
     let output = '';
     let errorOutput = '';
