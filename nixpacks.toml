@@ -1,6 +1,7 @@
 # yt-dlp: use edge (git master) instead of nix stable to fix YouTube nsig/player JS breakage.
+# pip is required for python -m pip; nix python311 does not include pip by default.
 [phases.setup]
-nixPkgs = ["nodejs_18", "python311", "ffmpeg"]
+nixPkgs = ["nodejs_18", "python311", "python311Packages.pip", "ffmpeg"]
 
 [phases.install]
 cmds = [
