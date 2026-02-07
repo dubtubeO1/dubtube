@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_18", "python311", "ffmpeg"]
 [phases.install]
 cmds = [
   "npm install",
-  "pip install --upgrade 'git+https://github.com/yt-dlp/yt-dlp.git'"
+  "python -m pip install --upgrade 'git+https://github.com/yt-dlp/yt-dlp.git'"
 ]
 
 [phases.build]
