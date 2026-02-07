@@ -67,6 +67,7 @@ function runExtraction(
         '--sleep-interval', '2', '--max-sleep-interval', '5', '--sleep-requests', '2',
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
+        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -88,6 +89,7 @@ function runExtraction(
         '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
+        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -284,6 +286,7 @@ async function tryAlternativeFormat(
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
+        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -304,6 +307,7 @@ async function tryAlternativeFormat(
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
+        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -393,6 +397,7 @@ async function tryThirdFallback(
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
+        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -413,6 +418,7 @@ async function tryThirdFallback(
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
+        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
