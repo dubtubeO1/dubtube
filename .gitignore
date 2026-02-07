@@ -41,3 +41,9 @@ yarn-error.log*
 next-env.d.ts
 
 PRD.md
+
+# YouTube cookies (NEVER COMMIT)
+www.youtube.com_cookies.txt
+*.cookies.txt
+/config/*.cookies.txt
+/config/www.youtube.com_cookies.txt
