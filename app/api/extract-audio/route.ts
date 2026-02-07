@@ -7,6 +7,7 @@ import { auth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { ytDlpQueue } from '@/lib/extract-audio-queue';
 import { getRandomProxyUrl } from '@/lib/proxy';
+import { ensureYtCookies } from '@/lib/ensureYtCookies';
 
 /** Stream status events (NDJSON). */
 type StreamStatus = { status: 'queued' } | { status: 'processing' } | { status: 'done'; audioUrl: string } | { status: 'error'; error: string };
@@ -15,7 +16,7 @@ type StreamStatus = { status: 'queued' } | { status: 'processing' } | { status: 
  * Run the first yt-dlp attempt (and fallbacks). Returns NextResponse on success or throws NextResponse on error.
  * Used inside the concurrency gate so only this part is limited.
  *
- * proxyUrl is chosen once per job and reused for all fallbacks.
+ * proxyUrl and cookiePath are chosen once per job and reused for all fallbacks.
  */
 function runExtraction(
   youtubeUrl: string,
@@ -24,7 +25,8 @@ function runExtraction(
   ffmpegDir: string,
   browserFingerprint: unknown,
   realClientIP: string,
-  proxyUrl: string | null
+  proxyUrl: string | null,
+  cookiePath: string
 ): Promise<NextResponse> {
   return new Promise<NextResponse>((resolve, reject) => {
     const useRealFingerprint = browserFingerprint && typeof browserFingerprint === 'object' && (browserFingerprint as { userAgent?: string }).userAgent;
@@ -34,6 +36,7 @@ function runExtraction(
       const fp = browserFingerprint as { userAgent: string; language?: string };
       console.log('Using real browser fingerprint for extraction');
       const baseArgs: string[] = [
+        '--cookies', cookiePath,
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
@@ -46,22 +49,14 @@ function runExtraction(
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         '--add-header', `Accept-Language:${fp.language || 'en-US,en;q=0.9'}`,
-        '--add-header', 'Accept-Encoding:gzip, deflate, br',
-        '--add-header', 'Cache-Control:no-cache',
-        '--add-header', 'Pragma:no-cache',
         '--sleep-interval', '2', '--max-sleep-interval', '5', '--sleep-requests', '2',
-        '--extractor-args', 'youtube:player_client=ios',
-        '--extractor-args', 'youtube:skip=dash,hls',
-        '--extractor-args', 'youtube:skip=hls',
         '--extractor-args', 'youtube:include_live_chat=false',
-        '--extractor-args', 'youtube:formats=missing_pot',
-        '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     } else {
       console.log('Using fallback bypass method');
       const baseArgs: string[] = [
+        '--cookies', cookiePath,
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
@@ -71,20 +66,11 @@ function runExtraction(
         '--format', 'bestaudio[height<=720]/bestaudio',
         '--retries', '3', '--fragment-retries', '3',
         '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
-        '--referer', 'https://www.google.com/',
+        '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
-        '--add-header', 'Accept-Encoding:gzip, deflate, br',
-        '--add-header', 'Cache-Control:no-cache',
-        '--add-header', 'Pragma:no-cache',
         '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
-        '--extractor-args', 'youtube:player_client=ios',
-        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
-        '--extractor-args', 'youtube:skip=hls',
         '--extractor-args', 'youtube:include_live_chat=false',
-        '--extractor-args', 'youtube:formats=missing_pot',
-        '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     }
@@ -100,11 +86,11 @@ function runExtraction(
         resolve(NextResponse.json({ audioUrl: `/audio/${filename}` }));
       } else {
         console.log('First attempt failed, trying alternative format...');
-        tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP)
+        tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir, cookiePath, browserFingerprint, realClientIP, proxyUrl)
           .then(resolve)
           .catch(() => {
             console.log('Alternative format failed, trying third fallback...');
-            tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, browserFingerprint, realClientIP, proxyUrl).then(resolve).catch(reject);
+            tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, cookiePath, browserFingerprint, realClientIP, proxyUrl).then(resolve).catch(reject);
           });
       }
     });
@@ -189,6 +175,7 @@ export async function POST(request: Request): Promise<Response> {
 
           // Choose one proxy per job and reuse for all fallbacks.
           const proxyUrl = getRandomProxyUrl();
+          const cookiePath = await ensureYtCookies();
           const maskedProxy =
             proxyUrl && proxyUrl.includes('@')
               ? proxyUrl.replace(/\/\/[^@]+@/, '//***:***@')
@@ -202,7 +189,8 @@ export async function POST(request: Request): Promise<Response> {
             ffmpegDir,
             browserFingerprint,
             realClientIP,
-            proxyUrl
+            proxyUrl,
+            cookiePath
           );
           const data = (await res.json()) as { audioUrl?: string; error?: string; details?: string };
           if (data.audioUrl) {
@@ -246,6 +234,7 @@ async function tryAlternativeFormat(
   youtubeUrl: string,
   outputPath: string,
   ffmpegDir: string,
+  cookiePath: string,
   browserFingerprint?: any,
   clientIP?: string,
   proxyUrl?: string | null
@@ -254,11 +243,12 @@ async function tryAlternativeFormat(
     // Use browser fingerprint if available, otherwise use fallback
     const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
     
-    let args;
+    let args: string[];
     
     if (useRealFingerprint) {
       console.log('Using real browser fingerprint for alternative format');
       const baseArgs: string[] = [
+        '--cookies', cookiePath,
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
@@ -270,22 +260,14 @@ async function tryAlternativeFormat(
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         '--add-header', `Accept-Language:${browserFingerprint.language}`,
-        '--add-header', 'Accept-Encoding:gzip, deflate, br',
-        '--add-header', 'Cache-Control:no-cache',
-        '--add-header', 'Pragma:no-cache',
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
-        '--extractor-args', 'youtube:player_client=ios',
-        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
-        '--extractor-args', 'youtube:skip=hls',
         '--extractor-args', 'youtube:include_live_chat=false',
-        '--extractor-args', 'youtube:formats=missing_pot',
-        '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     } else {
       console.log('Using fallback bypass for alternative format');
       const baseArgs: string[] = [
+        '--cookies', cookiePath,
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
@@ -294,20 +276,11 @@ async function tryAlternativeFormat(
         '--format', 'bestaudio[height<=720]/bestaudio',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        '--referer', 'https://www.google.com/',
+        '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
-        '--add-header', 'Accept-Encoding:gzip, deflate, br',
-        '--add-header', 'Cache-Control:no-cache',
-        '--add-header', 'Pragma:no-cache',
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
-        '--extractor-args', 'youtube:player_client=ios',
-        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
-        '--extractor-args', 'youtube:skip=hls',
         '--extractor-args', 'youtube:include_live_chat=false',
-        '--extractor-args', 'youtube:formats=missing_pot',
-        '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     }
@@ -368,6 +341,7 @@ async function tryThirdFallback(
   youtubeUrl: string,
   outputPath: string,
   ffmpegDir: string,
+  cookiePath: string,
   browserFingerprint?: any,
   clientIP?: string,
   proxyUrl?: string | null
@@ -376,11 +350,12 @@ async function tryThirdFallback(
     // Use browser fingerprint if available, otherwise use fallback
     const useRealFingerprint = browserFingerprint && browserFingerprint.userAgent;
     
-    let args;
+    let args: string[];
     
     if (useRealFingerprint) {
       console.log('Using real browser fingerprint for third fallback');
       const baseArgs: string[] = [
+        '--cookies', cookiePath,
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
@@ -392,22 +367,14 @@ async function tryThirdFallback(
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         '--add-header', `Accept-Language:${browserFingerprint.language}`,
-        '--add-header', 'Accept-Encoding:gzip, deflate, br',
-        '--add-header', 'Cache-Control:no-cache',
-        '--add-header', 'Pragma:no-cache',
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
-        '--extractor-args', 'youtube:player_client=ios',
-        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
-        '--extractor-args', 'youtube:skip=hls',
         '--extractor-args', 'youtube:include_live_chat=false',
-        '--extractor-args', 'youtube:formats=missing_pot',
-        '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     } else {
       console.log('Using fallback bypass for third fallback');
       const baseArgs: string[] = [
+        '--cookies', cookiePath,
         youtubeUrl,
         '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
@@ -419,17 +386,8 @@ async function tryThirdFallback(
         '--referer', 'https://www.google.com/',
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
-        '--add-header', 'Accept-Encoding:gzip, deflate, br',
-        '--add-header', 'Cache-Control:no-cache',
-        '--add-header', 'Pragma:no-cache',
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
-        '--extractor-args', 'youtube:player_client=ios',
-        '--extractor-args', 'youtube:skip=dash,hls,webm,mp4',
-        '--extractor-args', 'youtube:skip=hls',
         '--extractor-args', 'youtube:include_live_chat=false',
-        '--extractor-args', 'youtube:formats=missing_pot',
-        '--geo-bypass', '--geo-bypass-country', 'US',
-        '--check-formats',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     }
