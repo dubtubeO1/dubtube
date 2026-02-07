@@ -1,9 +1,11 @@
+# yt-dlp: use edge (git master) instead of nix stable to fix YouTube nsig/player JS breakage.
 [phases.setup]
-nixPkgs = ["nodejs_18", "python311", "ffmpeg", "yt-dlp"]
+nixPkgs = ["nodejs_18", "python311", "ffmpeg"]
 
 [phases.install]
 cmds = [
-  "npm install"
+  "npm install",
+  "pip install --upgrade 'git+https://github.com/yt-dlp/yt-dlp.git'"
 ]
 
 [phases.build]

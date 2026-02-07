@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { mkdir } from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -11,6 +11,19 @@ import { ensureYtCookies } from '@/lib/ensureYtCookies';
 
 /** Stream status events (NDJSON). */
 type StreamStatus = { status: 'queued' } | { status: 'processing' } | { status: 'done'; audioUrl: string } | { status: 'error'; error: string } | { status: 'debug'; stdout?: string; stderr?: string; exitCode?: number };
+
+/** Log yt-dlp version once per process (edge required for YouTube nsig/player JS). */
+let ytDlpVersionLogged = false;
+function logYtDlpVersionOnce(): void {
+  if (ytDlpVersionLogged) return;
+  ytDlpVersionLogged = true;
+  try {
+    const v = execSync('yt-dlp --version', { encoding: 'utf-8' });
+    console.log('[yt-dlp] version:', v.trim());
+  } catch (e) {
+    console.warn('[yt-dlp] version check failed:', (e as Error).message);
+  }
+}
 
 /**
  * Run the first yt-dlp attempt (and fallbacks). Returns NextResponse on success or throws NextResponse on error.
@@ -77,6 +90,7 @@ function runExtraction(
       args = baseArgs;
     }
 
+    logYtDlpVersionOnce();
     console.log('[yt-dlp] Diagnostic run: proxy disabled');
     const ytDlp = spawn('yt-dlp', args);
     let errorOutput = '';
