@@ -38,16 +38,18 @@ function runExtraction(
       const baseArgs: string[] = [
         '--cookies', cookiePath,
         youtubeUrl,
-        '--list-formats',
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
+        '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
-        '--no-check-certificate', '--prefer-ffmpeg',
+        '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
+        '--format', 'bestaudio/best',
         '--retries', '3', '--fragment-retries', '3',
         '--user-agent', fp.userAgent,
         '--referer', 'https://www.youtube.com/',
-        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        '--add-header', `Accept-Language:${fp.language || 'en-US,en;q=0.9'}`,
+        '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '2', '--max-sleep-interval', '5', '--sleep-requests', '2',
+        '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
@@ -56,33 +58,41 @@ function runExtraction(
       const baseArgs: string[] = [
         '--cookies', cookiePath,
         youtubeUrl,
-        '--list-formats',
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
+        '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
-        '--no-check-certificate', '--prefer-ffmpeg',
+        '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
+        '--format', 'bestaudio/best',
         '--retries', '3', '--fragment-retries', '3',
         '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
         '--referer', 'https://www.youtube.com/',
-        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
+        '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
     }
 
     const ytDlp = spawn('yt-dlp', args);
-    let stdoutOutput = '';
     let errorOutput = '';
 
-    ytDlp.stdout.on('data', (data) => { const s = data.toString(); stdoutOutput += s; console.log('yt-dlp output:', s); });
-    ytDlp.stderr.on('data', (data) => { const s = data.toString(); errorOutput += s; console.log('yt-dlp error:', s); });
+    ytDlp.stdout.on('data', (data) => { console.log('yt-dlp output:', data.toString()); });
+    ytDlp.stderr.on('data', (data) => { errorOutput += data.toString(); console.log('yt-dlp error:', data.toString()); });
 
     ytDlp.on('close', (code) => {
-      resolve(NextResponse.json(
-        { stdout: stdoutOutput, stderr: errorOutput, exitCode: code },
-        { status: code === 0 ? 200 : 500 }
-      ));
+      if (code === 0) {
+        resolve(NextResponse.json({ audioUrl: `/audio/${filename}` }));
+      } else {
+        console.log('First attempt failed, trying alternative format...');
+        tryAlternativeFormat(youtubeUrl, outputPath, ffmpegDir, cookiePath, browserFingerprint, realClientIP, proxyUrl)
+          .then(resolve)
+          .catch(() => {
+            console.log('Alternative format failed, trying third fallback...');
+            tryThirdFallback(youtubeUrl, outputPath, ffmpegDir, cookiePath, browserFingerprint, realClientIP, proxyUrl).then(resolve).catch(reject);
+          });
+      }
     });
 
     ytDlp.on('error', (error) => {
@@ -246,13 +256,13 @@ async function tryAlternativeFormat(
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio[height<=720]/bestaudio',
+        '--format', 'bestaudio/best',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', browserFingerprint.userAgent,
         '--referer', 'https://www.youtube.com/',
-        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        '--add-header', `Accept-Language:${browserFingerprint.language}`,
+        '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
+        '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
@@ -265,13 +275,13 @@ async function tryAlternativeFormat(
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio[height<=720]/bestaudio',
+        '--format', 'bestaudio/best',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         '--referer', 'https://www.youtube.com/',
-        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
+        '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
@@ -353,13 +363,13 @@ async function tryThirdFallback(
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio[height<=720]/bestaudio',
+        '--format', 'bestaudio/best',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', browserFingerprint.userAgent,
         '--referer', 'https://www.youtube.com/',
-        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        '--add-header', `Accept-Language:${browserFingerprint.language}`,
+        '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
+        '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
@@ -372,13 +382,13 @@ async function tryThirdFallback(
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio[height<=720]/bestaudio',
+        '--format', 'bestaudio/best',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-        '--referer', 'https://www.google.com/',
-        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
+        '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
       args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
