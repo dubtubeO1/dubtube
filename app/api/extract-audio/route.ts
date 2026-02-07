@@ -52,7 +52,8 @@ function runExtraction(
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
-      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
+      // TEMP DIAGNOSTIC: proxy disabled for extraction test
+      args = baseArgs;
     } else {
       console.log('Using fallback bypass method');
       const baseArgs: string[] = [
@@ -72,9 +73,11 @@ function runExtraction(
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
-      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
+      // TEMP DIAGNOSTIC: proxy disabled for extraction test
+      args = baseArgs;
     }
 
+    console.log('[yt-dlp] Diagnostic run: proxy disabled');
     const ytDlp = spawn('yt-dlp', args);
     let errorOutput = '';
 
@@ -265,7 +268,8 @@ async function tryAlternativeFormat(
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
-      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
+      // TEMP DIAGNOSTIC: proxy disabled for extraction test
+      args = baseArgs;
     } else {
       console.log('Using fallback bypass for alternative format');
       const baseArgs: string[] = [
@@ -284,7 +288,8 @@ async function tryAlternativeFormat(
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
-      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
+      // TEMP DIAGNOSTIC: proxy disabled for extraction test
+      args = baseArgs;
     }
 
     const ytDlp = spawn('yt-dlp', args);
@@ -372,7 +377,8 @@ async function tryThirdFallback(
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
-      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
+      // TEMP DIAGNOSTIC: proxy disabled for extraction test
+      args = baseArgs;
     } else {
       console.log('Using fallback bypass for third fallback');
       const baseArgs: string[] = [
@@ -391,7 +397,8 @@ async function tryThirdFallback(
         '--extractor-args', 'youtube:player_client=android',
         '--extractor-args', 'youtube:include_live_chat=false',
       ];
-      args = proxyUrl ? ['--proxy', proxyUrl, ...baseArgs] : baseArgs;
+      // TEMP DIAGNOSTIC: proxy disabled for extraction test
+      args = baseArgs;
     }
 
     const ytDlp = spawn('yt-dlp', args);
