@@ -10,7 +10,7 @@ import { getRandomProxyUrl } from '@/lib/proxy';
 import { ensureYtCookies } from '@/lib/ensureYtCookies';
 
 /** Stream status events (NDJSON). */
-type StreamStatus = { status: 'queued' } | { status: 'processing' } | { status: 'done'; audioUrl: string } | { status: 'error'; error: string };
+type StreamStatus = { status: 'queued' } | { status: 'processing' } | { status: 'done'; audioUrl: string } | { status: 'error'; error: string } | { status: 'debug'; stdout?: string; stderr?: string; exitCode?: number };
 
 /**
  * Run the first yt-dlp attempt (and fallbacks). Returns NextResponse on success or throws NextResponse on error.
@@ -38,12 +38,10 @@ function runExtraction(
       const baseArgs: string[] = [
         '--cookies', cookiePath,
         youtubeUrl,
-        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '--list-formats',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
-        '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
-        '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
-        '--format', 'bestaudio',
+        '--no-check-certificate', '--prefer-ffmpeg',
         '--retries', '3', '--fragment-retries', '3',
         '--user-agent', fp.userAgent,
         '--referer', 'https://www.youtube.com/',
@@ -58,12 +56,10 @@ function runExtraction(
       const baseArgs: string[] = [
         '--cookies', cookiePath,
         youtubeUrl,
-        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '--list-formats',
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
-        '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
-        '--no-check-certificate', '--prefer-ffmpeg', '--extract-audio',
-        '--format', 'bestaudio',
+        '--no-check-certificate', '--prefer-ffmpeg',
         '--retries', '3', '--fragment-retries', '3',
         '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
         '--referer', 'https://www.youtube.com/',
@@ -76,20 +72,17 @@ function runExtraction(
     }
 
     const ytDlp = spawn('yt-dlp', args);
+    let stdoutOutput = '';
     let errorOutput = '';
 
-    ytDlp.stdout.on('data', (data) => { console.log('yt-dlp output:', data.toString()); });
-    ytDlp.stderr.on('data', (data) => { errorOutput += data.toString(); console.log('yt-dlp error:', data.toString()); });
+    ytDlp.stdout.on('data', (data) => { const s = data.toString(); stdoutOutput += s; console.log('yt-dlp output:', s); });
+    ytDlp.stderr.on('data', (data) => { const s = data.toString(); errorOutput += s; console.log('yt-dlp error:', s); });
 
     ytDlp.on('close', (code) => {
-      if (code === 0) {
-        resolve(NextResponse.json({ audioUrl: `/audio/${filename}` }));
-      } else {
-        reject(NextResponse.json(
-          { error: 'yt-dlp failed (format-debug: no retry)', details: errorOutput },
-          { status: 500 }
-        ));
-      }
+      resolve(NextResponse.json(
+        { stdout: stdoutOutput, stderr: errorOutput, exitCode: code },
+        { status: code === 0 ? 200 : 500 }
+      ));
     });
 
     ytDlp.on('error', (error) => {
@@ -189,9 +182,11 @@ export async function POST(request: Request): Promise<Response> {
             proxyUrl,
             cookiePath
           );
-          const data = (await res.json()) as { audioUrl?: string; error?: string; details?: string };
+          const data = (await res.json()) as { audioUrl?: string; error?: string; details?: string; stdout?: string; stderr?: string; exitCode?: number };
           if (data.audioUrl) {
             send({ status: 'done', audioUrl: data.audioUrl });
+          } else if (data.stdout !== undefined) {
+            send({ status: 'debug', stdout: data.stdout, stderr: data.stderr, exitCode: data.exitCode });
           } else {
             send({ status: 'error', error: data.error || data.details || 'Extraction failed' });
           }
