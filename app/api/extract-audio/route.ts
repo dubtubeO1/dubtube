@@ -59,15 +59,12 @@ function runExtraction(
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
         '--no-check-certificate', '--extract-audio',
-        '--format', 'bestaudio*[acodec!=none]/best',
+        '--format', 'best',
         '--retries', '3', '--fragment-retries', '3',
         '--user-agent', fp.userAgent,
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '2', '--max-sleep-interval', '5', '--sleep-requests', '2',
-        '--extractor-args', 'youtube:player_client=android',
-        '--extractor-args', 'youtube:include_live_chat=false',
-        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -81,15 +78,12 @@ function runExtraction(
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet', '--verbose',
         '--no-check-certificate', '--extract-audio',
-        '--format', 'bestaudio*[acodec!=none]/best',
+        '--format', 'best',
         '--retries', '3', '--fragment-retries', '3',
         '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '1', '--max-sleep-interval', '3', '--sleep-requests', '1',
-        '--extractor-args', 'youtube:player_client=android',
-        '--extractor-args', 'youtube:include_live_chat=false',
-        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -278,15 +272,12 @@ async function tryAlternativeFormat(
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio*[acodec!=none]/best',
+        '--format', 'best',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', browserFingerprint.userAgent,
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
-        '--extractor-args', 'youtube:player_client=android',
-        '--extractor-args', 'youtube:include_live_chat=false',
-        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -299,15 +290,12 @@ async function tryAlternativeFormat(
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio*[acodec!=none]/best',
+        '--format', 'best',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '2', '--max-sleep-interval', '4', '--sleep-requests', '2',
-        '--extractor-args', 'youtube:player_client=android',
-        '--extractor-args', 'youtube:include_live_chat=false',
-        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -389,15 +377,12 @@ async function tryThirdFallback(
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio*[acodec!=none]/best',
+        '--format', 'best',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', browserFingerprint.userAgent,
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
-        '--extractor-args', 'youtube:player_client=android',
-        '--extractor-args', 'youtube:include_live_chat=false',
-        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
@@ -410,15 +395,12 @@ async function tryThirdFallback(
         ...(ffmpegDir ? ['--ffmpeg-location', ffmpegDir] : []),
         '-o', outputPath,
         '--no-playlist', '--no-warnings', '--quiet',
-        '--format', 'bestaudio*[acodec!=none]/best',
+        '--format', 'best',
         '--retries', '2', '--fragment-retries', '2',
         '--user-agent', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--sleep-interval', '3', '--max-sleep-interval', '6', '--sleep-requests', '3',
-        '--extractor-args', 'youtube:player_client=android',
-        '--extractor-args', 'youtube:include_live_chat=false',
-        '--js-runtime', 'node',
       ];
       // TEMP DIAGNOSTIC: proxy disabled for extraction test
       args = baseArgs;
