@@ -128,6 +128,135 @@ export type Database = {
           created_at?: string
         }
       }
+      projects: {
+        Row: {
+          id: string
+          user_id: string
+          title: string
+          status: string
+          source_language: string | null
+          target_language: string | null
+          video_r2_key: string | null
+          audio_r2_key: string | null
+          dubbed_audio_r2_key: string | null
+          video_size_bytes: number | null
+          error_message: string | null
+          created_at: string
+          updated_at: string
+          deleted_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title: string
+          status?: string
+          source_language?: string | null
+          target_language?: string | null
+          video_r2_key?: string | null
+          audio_r2_key?: string | null
+          dubbed_audio_r2_key?: string | null
+          video_size_bytes?: number | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+          deleted_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          title?: string
+          status?: string
+          source_language?: string | null
+          target_language?: string | null
+          video_r2_key?: string | null
+          audio_r2_key?: string | null
+          dubbed_audio_r2_key?: string | null
+          video_size_bytes?: number | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+          deleted_at?: string | null
+        }
+      }
+      transcripts: {
+        Row: {
+          id: string
+          project_id: string
+          speaker_id: string | null
+          speaker_name: string | null
+          start_time: number | null
+          end_time: number | null
+          original_text: string | null
+          translated_text: string | null
+          segment_audio_r2_key: string | null
+          voice_id: string | null
+          is_cloned: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          speaker_id?: string | null
+          speaker_name?: string | null
+          start_time?: number | null
+          end_time?: number | null
+          original_text?: string | null
+          translated_text?: string | null
+          segment_audio_r2_key?: string | null
+          voice_id?: string | null
+          is_cloned?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          speaker_id?: string | null
+          speaker_name?: string | null
+          start_time?: number | null
+          end_time?: number | null
+          original_text?: string | null
+          translated_text?: string | null
+          segment_audio_r2_key?: string | null
+          voice_id?: string | null
+          is_cloned?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      speakers: {
+        Row: {
+          id: string
+          project_id: string
+          speaker_id: string
+          speaker_name: string | null
+          voice_id: string | null
+          is_cloned: boolean
+          cloned_voice_r2_key: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          speaker_id: string
+          speaker_name?: string | null
+          voice_id?: string | null
+          is_cloned?: boolean
+          cloned_voice_r2_key?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          speaker_id?: string
+          speaker_name?: string | null
+          voice_id?: string | null
+          is_cloned?: boolean
+          cloned_voice_r2_key?: string | null
+          created_at?: string
+        }
+      }
     }
   }
 }
