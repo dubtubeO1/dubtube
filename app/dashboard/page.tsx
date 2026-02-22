@@ -2,10 +2,12 @@
 
 import { useUser, useAuth } from '@clerk/nextjs'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { getUserFromSupabase, UserData } from '@/lib/user-sync'
-import { User, CreditCard, BarChart3, Settings, Calendar, CheckCircle } from 'lucide-react'
+import { User, CreditCard, BarChart3, Settings, Calendar, CheckCircle, Plus } from 'lucide-react'
 
 export default function Dashboard() {
+  const router = useRouter()
   const { user, isLoaded } = useUser()
   const { getToken } = useAuth()
   const [userData, setUserData] = useState<UserData | null>(null)
@@ -73,6 +75,13 @@ export default function Dashboard() {
               <p className="text-slate-600 mt-1">Welcome back, {user.firstName}!</p>
             </div>
             <div className="flex items-center space-x-4">
+              <button
+                onClick={() => router.push('/dashboard/new')}
+                className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Project</span>
+              </button>
               <div className="text-right">
                 <p className="text-sm text-slate-500">Account Status</p>
                 <div className="flex items-center space-x-2">

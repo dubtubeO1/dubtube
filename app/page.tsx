@@ -1,355 +1,364 @@
-'use client';
+'use client'
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import { extractYouTubeId, isValidYouTubeUrl } from './utils/youtube';
-import { Globe, Play, Sparkles, Zap, CheckCircle, AlertCircle } from 'lucide-react';
-import { useUser, SignInButton } from '@clerk/nextjs';
+import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
+import { extractYouTubeId, isValidYouTubeUrl } from './utils/youtube'
+import { Globe, Play, Sparkles, Zap, AlertCircle } from 'lucide-react'
+import { useUser, useClerk } from '@clerk/nextjs'
+import { stageFile } from '@/lib/staged-upload'
+import VideoDropZone from '@/app/components/VideoDropZone'
+
+type TurnstileWindow = Window & {
+  onTurnstileSuccess?: (token: string) => void
+  onTurnstileError?: () => void
+  onTurnstileExpired?: () => void
+}
+
+type NetworkInfo = {
+  effectiveType?: string
+  downlink?: number
+  rtt?: number
+}
 
 export default function Home() {
-  const router = useRouter();
-  const { user, isSignedIn, isLoaded } = useUser();
-  const [url, setUrl] = useState('');
-  const [language, setLanguage] = useState('es');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [typedText, setTypedText] = useState('');
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [verificationError, setVerificationError] = useState<string | null>(null);
-  const [isActiveSubscriber, setIsActiveSubscriber] = useState<boolean>(false);
-  const [checkingSub, setCheckingSub] = useState<boolean>(false);
-  const turnstileRef = useRef<any>(null);
+  const router = useRouter()
+  const { isSignedIn, isLoaded } = useUser()
+  const { openSignIn } = useClerk()
 
-  // Fetch subscription on load when signed in
+  // Tab: 'creators' is always active; 'viewers' tab is disabled (Coming Soon)
+  const [activeTab] = useState<'creators' | 'viewers'>('creators')
+
+  // Subscription status
+  const [isActiveSubscriber, setIsActiveSubscriber] = useState(false)
+  const [checkingSub, setCheckingSub] = useState(false)
+
+  // Typing animation
+  const [typedText, setTypedText] = useState('')
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const fullText = 'DubTube'
+  const subtitleText = 'Dub videos with perfect AI audio sync'
+
+  // ── For Viewers tab state (YouTube — preserved, wired to disabled tab) ──
+  const [url, setUrl] = useState('')
+  const [language, setLanguage] = useState('es')
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [isVerifying, setIsVerifying] = useState(false)
+  const [verificationError, setVerificationError] = useState<string | null>(null)
+  const turnstileRef = useRef<HTMLDivElement | null>(null)
+
+  // Fetch subscription status when signed in
   useEffect(() => {
     const fetchSub = async () => {
       if (!isSignedIn) {
-        setIsActiveSubscriber(false);
-        return;
+        setIsActiveSubscriber(false)
+        return
       }
-      setCheckingSub(true);
+      setCheckingSub(true)
       try {
-        const res = await fetch('/api/me/subscription');
+        const res = await fetch('/api/me/subscription')
         if (res.ok) {
-          const data = await res.json();
-          setIsActiveSubscriber(Boolean(data?.is_active));
+          const data = (await res.json()) as { is_active?: boolean }
+          setIsActiveSubscriber(Boolean(data?.is_active))
         } else {
-          setIsActiveSubscriber(false);
+          setIsActiveSubscriber(false)
         }
-      } catch (e) {
-        setIsActiveSubscriber(false);
+      } catch {
+        setIsActiveSubscriber(false)
       } finally {
-        setCheckingSub(false);
+        setCheckingSub(false)
       }
-    };
-    if (isLoaded) fetchSub();
-  }, [isLoaded, isSignedIn]);
+    }
+    if (isLoaded) fetchSub()
+  }, [isLoaded, isSignedIn])
 
-  // Browser fingerprinting function
+  // Typing animation
+  useEffect(() => {
+    if (currentIndex < fullText.length) {
+      const timeout = setTimeout(() => {
+        setTypedText(fullText.slice(0, currentIndex + 1))
+        setCurrentIndex(currentIndex + 1)
+      }, 150)
+      return () => clearTimeout(timeout)
+    }
+  }, [currentIndex, fullText])
+
+  // Load Turnstile only when viewers tab is active (currently never, tab is disabled)
+  useEffect(() => {
+    if (activeTab !== 'viewers') return
+
+    const win = window as TurnstileWindow
+    const script = document.createElement('script')
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+    script.async = true
+    script.defer = true
+    document.head.appendChild(script)
+
+    win.onTurnstileSuccess = onTurnstileSuccess
+    win.onTurnstileError = onTurnstileError
+    win.onTurnstileExpired = onTurnstileExpired
+
+    return () => {
+      const existing = document.querySelector(
+        'script[src="https://challenges.cloudflare.com/turnstile/v0/api.js"]',
+      )
+      if (existing) document.head.removeChild(existing)
+      delete win.onTurnstileSuccess
+      delete win.onTurnstileError
+      delete win.onTurnstileExpired
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
+  // ── Turnstile callbacks (For Viewers tab) ──
+  const onTurnstileSuccess = (token: string) => {
+    setTurnstileToken(token)
+    setVerificationError(null)
+  }
+
+  const onTurnstileError = () => {
+    setTurnstileToken(null)
+    setVerificationError('Verification failed. Please try again.')
+  }
+
+  const onTurnstileExpired = () => {
+    setTurnstileToken(null)
+    setVerificationError('Verification expired. Please try again.')
+  }
+
+  const resetTurnstile = () => {
+    setTurnstileToken(null)
+    setVerificationError(null)
+  }
+
+  // ── Browser fingerprinting (For Viewers tab) ──
   const collectBrowserFingerprint = () => {
     try {
+      const nav = navigator as Navigator & { connection?: NetworkInfo }
+
+      const getWebGLString = (param: number): string => {
+        try {
+          const canvas = document.createElement('canvas')
+          const gl =
+            canvas.getContext('webgl') ??
+            (canvas.getContext('experimental-webgl') as WebGLRenderingContext | null)
+          if (!gl) return 'Not Available'
+          const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
+          return debugInfo ? String(gl.getParameter(param)) : 'Unknown'
+        } catch {
+          return 'Error'
+        }
+      }
+
       const fingerprint = {
-        // Essential browser data
         userAgent: navigator.userAgent,
         screenResolution: `${screen.width}x${screen.height}`,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         language: navigator.language,
         platform: navigator.platform,
-        
-        // Advanced browser data
         colorDepth: screen.colorDepth,
         pixelRatio: window.devicePixelRatio,
         hardwareConcurrency: navigator.hardwareConcurrency,
         maxTouchPoints: navigator.maxTouchPoints,
         cookieEnabled: navigator.cookieEnabled,
         doNotTrack: navigator.doNotTrack,
-        
-        // Browser capabilities
-        plugins: Array.from(navigator.plugins).map(p => p.name),
-        mimeTypes: Array.from(navigator.mimeTypes).map(m => m.type),
-        
-        // WebGL info (if available)
-        webglVendor: (() => {
-          try {
-            const canvas = document.createElement('canvas');
-            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl') as WebGLRenderingContext | null;
-            if (gl) {
-              const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-              return debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : 'Unknown';
+        plugins: Array.from(navigator.plugins).map((p) => p.name),
+        mimeTypes: Array.from(navigator.mimeTypes).map((m) => m.type),
+        webglVendor: getWebGLString(0x9245 /* UNMASKED_VENDOR_WEBGL */),
+        webglRenderer: getWebGLString(0x9246 /* UNMASKED_RENDERER_WEBGL */),
+        connection: nav.connection
+          ? {
+              effectiveType: nav.connection.effectiveType,
+              downlink: nav.connection.downlink,
+              rtt: nav.connection.rtt,
             }
-            return 'Not Available';
-          } catch (e) {
-            return 'Error';
-          }
-        })(),
-        
-        webglRenderer: (() => {
-          try {
-            const canvas = document.createElement('canvas');
-            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl') as WebGLRenderingContext | null;
-            if (gl) {
-              const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-              return debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'Unknown';
-            }
-            return 'Not Available';
-          } catch (e) {
-            return 'Error';
-          }
-        })(),
-        
-        // Network info (if available)
-        connection: (navigator as any).connection ? {
-          effectiveType: (navigator as any).connection.effectiveType,
-          downlink: (navigator as any).connection.downlink,
-          rtt: (navigator as any).connection.rtt
-        } : null,
-        
-        // Browser version detection
+          : null,
         browserVersion: (() => {
-          const ua = navigator.userAgent;
-          if (ua.includes('Chrome')) {
-            const match = ua.match(/Chrome\/(\d+)/);
-            return match ? `Chrome ${match[1]}` : 'Chrome Unknown';
-          } else if (ua.includes('Firefox')) {
-            const match = ua.match(/Firefox\/(\d+)/);
-            return match ? `Firefox ${match[1]}` : 'Firefox Unknown';
-          } else if (ua.includes('Safari')) {
-            const match = ua.match(/Version\/(\d+)/);
-            return match ? `Safari ${match[1]}` : 'Safari Unknown';
-          } else if (ua.includes('Edge')) {
-            const match = ua.match(/Edge\/(\d+)/);
-            return match ? `Edge ${match[1]}` : 'Edge Unknown';
-          }
-          return 'Unknown Browser';
+          const ua = navigator.userAgent
+          const match =
+            ua.match(/Chrome\/(\d+)/) ??
+            ua.match(/Firefox\/(\d+)/) ??
+            ua.match(/Version\/(\d+)/) ??
+            ua.match(/Edge\/(\d+)/)
+          const browser = ua.includes('Chrome')
+            ? 'Chrome'
+            : ua.includes('Firefox')
+              ? 'Firefox'
+              : ua.includes('Safari')
+                ? 'Safari'
+                : ua.includes('Edge')
+                  ? 'Edge'
+                  : 'Unknown'
+          return match ? `${browser} ${match[1]}` : `${browser} Unknown`
         })(),
-        
-        // Timestamp for freshness
-        timestamp: Date.now()
-      };
-      
-      return fingerprint;
-    } catch (error) {
-      console.error('Error collecting browser fingerprint:', error);
-      return null;
-    }
-  };
-
-  const fullText = "DubTube";
-  const subtitleText = "Translate YouTube videos with perfect audio sync";
-
-  // Typing animation effect
-  useEffect(() => {
-    if (currentIndex < fullText.length) {
-      const timeout = setTimeout(() => {
-        setTypedText(fullText.slice(0, currentIndex + 1));
-        setCurrentIndex(currentIndex + 1);
-      }, 150);
-      return () => clearTimeout(timeout);
-    }
-  }, [currentIndex, fullText]);
-
-  // Load Turnstile script and set up global callbacks
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-    script.async = true;
-    script.defer = true;
-    document.head.appendChild(script);
-
-    // Set up global callback functions
-    (window as any).onTurnstileSuccess = onTurnstileSuccess;
-    (window as any).onTurnstileError = onTurnstileError;
-    (window as any).onTurnstileExpired = onTurnstileExpired;
-
-    return () => {
-      // Cleanup script and global callbacks on unmount
-      const existingScript = document.querySelector('script[src="https://challenges.cloudflare.com/turnstile/v0/api.js"]');
-      if (existingScript) {
-        document.head.removeChild(existingScript);
+        timestamp: Date.now(),
       }
-      delete (window as any).onTurnstileSuccess;
-      delete (window as any).onTurnstileError;
-      delete (window as any).onTurnstileExpired;
-    };
-  }, []);
-
-  // Turnstile callback functions
-  const onTurnstileSuccess = (token: string) => {
-    setTurnstileToken(token);
-    setVerificationError(null);
-  };
-
-  const onTurnstileError = () => {
-    setTurnstileToken(null);
-    setVerificationError('Verification failed. Please try again.');
-  };
-
-  const onTurnstileExpired = () => {
-    setTurnstileToken(null);
-    setVerificationError('Verification expired. Please try again.');
-  };
-
-  const resetTurnstile = () => {
-    if (turnstileRef.current) {
-      turnstileRef.current.reset();
+      return fingerprint
+    } catch {
+      console.error('Error collecting browser fingerprint')
+      return null
     }
-    setTurnstileToken(null);
-    setVerificationError(null);
-  };
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setVerificationError(null);
-
-    // Auth gating
+  // ── For Creators tab: handle file drop/select ──
+  const handleFile = (file: File) => {
+    if (!isLoaded) return
     if (!isSignedIn) {
-      return; // SignInButton handles modal
+      openSignIn()
+      return
     }
+    if (checkingSub) return // subscription status still loading
     if (!isActiveSubscriber) {
-      router.push('/pricing#pricing-cards');
-      return;
+      router.push('/pricing')
+      return
+    }
+    stageFile(file)
+    router.push('/dashboard/new')
+  }
+
+  // ── For Viewers tab: handle YouTube form submit ──
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setVerificationError(null)
+
+    if (!isSignedIn) return
+    if (!isActiveSubscriber) {
+      router.push('/pricing#pricing-cards')
+      return
     }
 
-    // Validate YouTube URL
     if (!isValidYouTubeUrl(url)) {
-      setError('Please enter a valid YouTube URL');
-      return;
+      setError('Please enter a valid YouTube URL')
+      return
     }
 
-    const videoId = extractYouTubeId(url);
+    const videoId = extractYouTubeId(url)
     if (!videoId) {
-      setError('Could not extract video ID from URL');
-      return;
+      setError('Could not extract video ID from URL')
+      return
     }
 
-    // Check if Turnstile token exists
     if (!turnstileToken) {
-      setVerificationError('Please complete the verification');
-      return;
+      setVerificationError('Please complete the verification')
+      return
     }
 
-    setIsLoading(true);
-    setIsVerifying(true);
+    setIsLoading(true)
+    setIsVerifying(true)
 
     try {
-      // Collect browser fingerprint
-      const browserFingerprint = collectBrowserFingerprint();
-      
+      const browserFingerprint = collectBrowserFingerprint()
       if (!browserFingerprint) {
-        setError('Unable to collect browser information. Please try again.');
-        return;
+        setError('Unable to collect browser information. Please try again.')
+        return
       }
 
-      // Verify Turnstile token with server and send browser fingerprint
       const response = await fetch('/api/verify-turnstile', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token: turnstileToken,
-          remoteip: null, // Let server determine IP
-          browserFingerprint: browserFingerprint,
-          videoId: videoId,
-          language: language
+          remoteip: null,
+          browserFingerprint,
+          videoId,
+          language,
         }),
-      });
+      })
 
-      const result = await response.json();
+      const result = (await response.json()) as {
+        success: boolean
+        error?: string
+        data?: { videoId: string; language: string; browserFingerprint: unknown }
+      }
 
       if (!result.success) {
-        setVerificationError(result.error || 'Verification failed. Please try again.');
-        resetTurnstile();
-        return;
+        setVerificationError(result.error ?? 'Verification failed. Please try again.')
+        resetTurnstile()
+        return
       }
 
-      // Verification successful, now start audio extraction
-      console.log('Turnstile verification successful, starting audio extraction...');
-      
-      // Get client IP from the verification result or use a default
-      const clientIP = 'unknown'; // We'll get this from server headers
-      
-      // Start audio extraction with browser fingerprint
       const extractResponse = await fetch('/api/extract-audio', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          videoId: result.data.videoId,
-          language: result.data.language,
-          browserFingerprint: result.data.browserFingerprint,
-          clientIP: clientIP
+          videoId: result.data?.videoId,
+          language: result.data?.language,
+          browserFingerprint: result.data?.browserFingerprint,
+          clientIP: 'unknown',
         }),
-      });
+      })
 
       if (!extractResponse.ok) {
-        const extractError = await extractResponse.json().catch(() => ({}));
-        setError((extractError as { error?: string }).error || 'Failed to start audio extraction process');
-        resetTurnstile();
-        return;
+        const extractError = (await extractResponse.json().catch(() => ({}))) as {
+          error?: string
+        }
+        setError(extractError.error ?? 'Failed to start audio extraction process')
+        resetTurnstile()
+        return
       }
 
-      // Consume NDJSON stream: queued → processing → done | error
-      const reader = extractResponse.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let extractError: string | null = null;
-      let done = false;
+      // Consume NDJSON stream
+      const reader = extractResponse.body?.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let extractErr: string | null = null
+      let done = false
+
       if (reader) {
         while (true) {
-          const { done: streamDone, value } = await reader.read();
-          if (streamDone) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
+          const { done: streamDone, value } = await reader.read()
+          if (streamDone) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
           for (const line of lines) {
-            if (!line.trim()) continue;
+            if (!line.trim()) continue
             try {
-              const event = JSON.parse(line) as { status: string; audioUrl?: string; error?: string };
-              if (event.status === 'done') done = true;
-              else if (event.status === 'error') extractError = event.error ?? 'Extraction failed';
+              const event = JSON.parse(line) as {
+                status: string
+                audioUrl?: string
+                error?: string
+              }
+              if (event.status === 'done') done = true
+              else if (event.status === 'error') extractErr = event.error ?? 'Extraction failed'
             } catch {
-              /* skip */
+              /* skip malformed lines */
             }
           }
-          if (done || extractError) break;
+          if (done || extractErr) break
         }
       }
 
-      if (extractError) {
-        setError(extractError);
-        resetTurnstile();
-        return;
+      if (extractErr) {
+        setError(extractErr)
+        resetTurnstile()
+        return
       }
       if (!done) {
-        setError('Failed to extract audio');
-        resetTurnstile();
-        return;
+        setError('Failed to extract audio')
+        resetTurnstile()
+        return
       }
 
-      // Audio extraction completed, proceed to video page (pipeline continues there)
-      router.push(`/video/${videoId}?lang=${language}`);
-    } catch (err) {
-      setError('Failed to process video. Please try again.');
-      console.error(err);
-      resetTurnstile();
+      router.push(`/video/${videoId}?lang=${language}`)
+    } catch {
+      setError('Failed to process video. Please try again.')
+      resetTurnstile()
     } finally {
-      setIsLoading(false);
-      setIsVerifying(false);
+      setIsLoading(false)
+      setIsVerifying(false)
     }
-  };
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 relative overflow-hidden">
       {/* Floating background blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-r from-slate-200 to-slate-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-        <div className="absolute top-40 right-10 w-72 h-72 bg-gradient-to-r from-slate-300 to-slate-400 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-gradient-to-r from-slate-100 to-slate-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+        <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-r from-slate-200 to-slate-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob" />
+        <div className="absolute top-40 right-10 w-72 h-72 bg-gradient-to-r from-slate-300 to-slate-400 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob" />
+        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-gradient-to-r from-slate-100 to-slate-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob" />
       </div>
 
       {/* Main content */}
@@ -357,168 +366,154 @@ export default function Home() {
         <div className="max-w-4xl mx-auto text-center space-y-8">
           {/* Header */}
           <div className="space-y-6">
-            {/* Main title with typing animation */}
             <h1 className="text-6xl md:text-8xl font-bold">
               <span className="bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 bg-clip-text text-transparent animate-gradient">
                 {typedText}
               </span>
             </h1>
-
-            {/* Subtitle */}
-            <p className="text-3xl md:text-5xl font-light text-slate-600">
-              {subtitleText}
-            </p>
+            <p className="text-3xl md:text-5xl font-light text-slate-600">{subtitleText}</p>
           </div>
 
-          {/* Main form */}
+          {/* Tab buttons */}
+          <div className="flex items-center justify-center space-x-3">
+            <button className="px-6 py-2.5 rounded-xl text-sm font-medium bg-slate-700 text-white shadow-md">
+              For Creators
+            </button>
+            <div className="relative">
+              <button
+                disabled
+                className="px-6 py-2.5 rounded-xl text-sm font-medium text-slate-400 bg-white/70 border border-slate-200 cursor-not-allowed"
+              >
+                For Viewers
+              </button>
+              <span className="absolute -top-2.5 -right-2.5 text-xs bg-slate-200 text-slate-500 rounded-full px-1.5 py-0.5 font-medium leading-none">
+                Soon
+              </span>
+            </div>
+          </div>
+
+          {/* Tab content */}
           <div className="max-w-2xl mx-auto w-full">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* URL Input */}
-              <div className="space-y-3">
-                <label htmlFor="url" className="block text-sm font-medium text-slate-700 text-left">
-                  YouTube URL
-                </label>
-                <input
-                  type="url"
-                  id="url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  required
-                  className="w-full px-6 py-4 rounded-2xl border border-slate-300 
-                           focus:ring-2 focus:ring-slate-500 focus:border-transparent
-                           bg-white/70 backdrop-blur-sm
-                           text-slate-900 placeholder-slate-400
-                           transition-all duration-300 hover:shadow-md"
-                />
-                {error && (
-                  <p className="text-red-500 text-sm text-left">{error}</p>
-                )}
-              </div>
+            {/* ── For Creators ── */}
+            {activeTab === 'creators' && (
+              <div className="space-y-4">
+                <VideoDropZone onFile={handleFile} />
 
-              {/* Language Selector */}
-              <div className="space-y-3">
-                <label htmlFor="language" className="block text-sm font-medium text-slate-700 text-left">
-                  Target Language
-                </label>
-                <select
-                  id="language"
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full px-6 py-4 rounded-2xl border border-slate-300
-                           focus:ring-2 focus:ring-slate-500 focus:border-transparent
-                           bg-white/70 backdrop-blur-sm
-                           text-slate-900
-                           transition-all duration-300 hover:shadow-md"
-                >
-                  <option value="en">English</option>
-                  <option value="tr">Turkish</option>
-                  <option value="es">Spanish</option>
-                  <option value="fr">French</option>
-                  <option value="de">German</option>
-                  <option value="it">Italian</option>
-                  <option value="pt">Portuguese</option>
-                  <option value="ru">Russian</option>
-                  <option value="ja">Japanese</option>
-                  <option value="ko">Korean</option>
-                  <option value="zh">Chinese</option>
-                </select>
-              </div>
-
-              {/* Turnstile Widget */}
-              <div className="space-y-3">
-                <div className="flex justify-center">
-                  <div
-                    ref={turnstileRef}
-                    className="cf-turnstile"
-                    data-sitekey={process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY}
-                    data-callback="onTurnstileSuccess"
-                    data-error-callback="onTurnstileError"
-                    data-expired-callback="onTurnstileExpired"
-                    data-theme="light"
-                    data-size="normal"
-                  />
+                {/* Format pills */}
+                <div className="flex items-center justify-center flex-wrap gap-2">
+                  {['MP4', 'MOV', 'AVI', 'MKV', 'WebM'].map((fmt) => (
+                    <span
+                      key={fmt}
+                      className="px-3 py-1 bg-slate-100 text-slate-500 text-xs rounded-full font-medium border border-slate-200"
+                    >
+                      {fmt}
+                    </span>
+                  ))}
                 </div>
-                {verificationError && (
-                  <div className="flex items-center space-x-2 text-red-500 text-sm">
-                    <AlertCircle className="w-4 h-4" />
-                    <span>{verificationError}</span>
-                  </div>
-                )}
               </div>
+            )}
 
-              {/* Submit Button */}
-              {!isSignedIn ? (
-                <SignInButton mode="modal">
+            {/* ── For Viewers (preserved, currently inaccessible — Coming Soon) ── */}
+            {activeTab === 'viewers' && (
+              <div className="pointer-events-none opacity-50">
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  {/* URL Input */}
+                  <div className="space-y-3">
+                    <label
+                      htmlFor="url"
+                      className="block text-sm font-medium text-slate-700 text-left"
+                    >
+                      YouTube URL
+                    </label>
+                    <input
+                      type="url"
+                      id="url"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      placeholder="https://www.youtube.com/watch?v=..."
+                      required
+                      className="w-full px-6 py-4 rounded-2xl border border-slate-300 focus:ring-2 focus:ring-slate-500 focus:border-transparent bg-white/70 backdrop-blur-sm text-slate-900 placeholder-slate-400 transition-all duration-300 hover:shadow-md"
+                    />
+                    {error && <p className="text-red-500 text-sm text-left">{error}</p>}
+                  </div>
+
+                  {/* Language Selector */}
+                  <div className="space-y-3">
+                    <label
+                      htmlFor="language"
+                      className="block text-sm font-medium text-slate-700 text-left"
+                    >
+                      Target Language
+                    </label>
+                    <select
+                      id="language"
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                      className="w-full px-6 py-4 rounded-2xl border border-slate-300 focus:ring-2 focus:ring-slate-500 focus:border-transparent bg-white/70 backdrop-blur-sm text-slate-900 transition-all duration-300 hover:shadow-md"
+                    >
+                      <option value="en">English</option>
+                      <option value="tr">Turkish</option>
+                      <option value="es">Spanish</option>
+                      <option value="fr">French</option>
+                      <option value="de">German</option>
+                      <option value="it">Italian</option>
+                      <option value="pt">Portuguese</option>
+                      <option value="ru">Russian</option>
+                      <option value="ja">Japanese</option>
+                      <option value="ko">Korean</option>
+                      <option value="zh">Chinese</option>
+                    </select>
+                  </div>
+
+                  {/* Turnstile Widget */}
+                  <div className="space-y-3">
+                    <div className="flex justify-center">
+                      <div
+                        ref={turnstileRef}
+                        className="cf-turnstile"
+                        data-sitekey={process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY}
+                        data-callback="onTurnstileSuccess"
+                        data-error-callback="onTurnstileError"
+                        data-expired-callback="onTurnstileExpired"
+                        data-theme="light"
+                        data-size="normal"
+                      />
+                    </div>
+                    {verificationError && (
+                      <div className="flex items-center space-x-2 text-red-500 text-sm">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>{verificationError}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Submit Button */}
                   <button
-                    type="button"
-                    className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 
-                             text-white font-medium hover:from-slate-800 hover:to-slate-700
-                             focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
-                             transition-all duration-300 transform hover:scale-105
-                             shadow-lg hover:shadow-xl"
+                    type="submit"
+                    disabled={isLoading || !turnstileToken}
+                    className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
                   >
-                    <span className="flex items-center justify-center space-x-3">
-                      <AlertCircle className="w-5 h-5" />
-                      <span>Sign in to translate videos</span>
-                    </span>
+                    {isLoading ? (
+                      <span className="flex items-center justify-center space-x-3">
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>{isVerifying ? 'Verifying...' : 'Processing...'}</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center space-x-3">
+                        <Play className="w-5 h-5" />
+                        <span>Translate Video</span>
+                      </span>
+                    )}
                   </button>
-                </SignInButton>
-              ) : !isActiveSubscriber ? (
-                <button
-                  type="button"
-                  onClick={() => router.push('/pricing#pricing-cards')}
-                  className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 
-                           text-white font-medium hover:from-slate-800 hover:to-slate-700
-                           focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
-                           transition-all duration-300 transform hover:scale-105
-                           shadow-lg hover:shadow-xl"
-                >
-                  <span className="flex items-center justify-center space-x-3">
-                    <Sparkles className="w-5 h-5" />
-                    <span>Become a subscriber</span>
-                  </span>
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={isLoading || !turnstileToken}
-                  className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 
-                           text-white font-medium hover:from-slate-800 hover:to-slate-700
-                           focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
-                           disabled:opacity-50 disabled:cursor-not-allowed
-                           transition-all duration-300 transform hover:scale-105
-                           shadow-lg hover:shadow-xl"
-                >
-                  {isLoading ? (
-                    <span className="flex items-center justify-center space-x-3">
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>{isVerifying ? 'Verifying...' : 'Processing...'}</span>
-                    </span>
-                  ) : !turnstileToken ? (
-                    <span className="flex items-center justify-center space-x-3">
-                      <AlertCircle className="w-5 h-5" />
-                      <span>Complete Verification</span>
-                    </span>
-                  ) : (
-                    <span className="flex items-center justify-center space-x-3">
-                      <Play className="w-5 h-5" />
-                      <span>Translate Video</span>
-                    </span>
-                  )}
-                </button>
-              )}
-            </form>
+                </form>
+              </div>
+            )}
 
-            {/* Call to action */}
+            {/* Pricing CTA */}
             <div className="mt-6">
               <button
                 onClick={() => router.push('/pricing#pricing-cards')}
-                className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-600 to-slate-500 
-                         text-white font-medium hover:from-slate-700 hover:to-slate-600
-                         focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2
-                         transition-all duration-300 transform hover:scale-105
-                         shadow-lg hover:shadow-xl"
+                className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-600 to-slate-500 text-white font-medium hover:from-slate-700 hover:to-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
               >
                 <span className="flex items-center justify-center space-x-3">
                   <Sparkles className="w-5 h-5" />
@@ -530,33 +525,39 @@ export default function Home() {
 
           {/* Divider with dots */}
           <div className="flex items-center justify-center space-x-4">
-            <div className="w-16 h-px bg-gradient-to-r from-transparent to-slate-300"></div>
-            <div className="w-2 h-2 bg-slate-400 rounded-full"></div>
-            <div className="w-2 h-2 bg-slate-400 rounded-full"></div>
-            <div className="w-2 h-2 bg-slate-400 rounded-full"></div>
-            <div className="w-16 h-px bg-gradient-to-l from-transparent to-slate-300"></div>
+            <div className="w-16 h-px bg-gradient-to-r from-transparent to-slate-300" />
+            <div className="w-2 h-2 bg-slate-400 rounded-full" />
+            <div className="w-2 h-2 bg-slate-400 rounded-full" />
+            <div className="w-2 h-2 bg-slate-400 rounded-full" />
+            <div className="w-16 h-px bg-gradient-to-l from-transparent to-slate-300" />
           </div>
 
-          {/* Features */}
+          {/* Feature cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto">
             <div className="flex flex-col items-center space-y-3 p-6 rounded-2xl bg-white/50 backdrop-blur-sm border border-slate-200 hover:shadow-lg transition-all duration-300">
               <Globe className="w-8 h-8 text-slate-600" />
               <h3 className="text-lg font-medium text-slate-700">Multi-Language</h3>
-              <p className="text-sm text-slate-500 font-light text-center">Support for 11+ languages with perfect translation</p>
+              <p className="text-sm text-slate-500 font-light text-center">
+                Support for 32 languages with perfect translation
+              </p>
             </div>
             <div className="flex flex-col items-center space-y-3 p-6 rounded-2xl bg-white/50 backdrop-blur-sm border border-slate-200 hover:shadow-lg transition-all duration-300">
               <Zap className="w-8 h-8 text-slate-600" />
               <h3 className="text-lg font-medium text-slate-700">Perfect Sync</h3>
-              <p className="text-sm text-slate-500 font-light text-center">Audio synchronization with original video timing</p>
+              <p className="text-sm text-slate-500 font-light text-center">
+                Audio synchronization with original video timing
+              </p>
             </div>
             <div className="flex flex-col items-center space-y-3 p-6 rounded-2xl bg-white/50 backdrop-blur-sm border border-slate-200 hover:shadow-lg transition-all duration-300">
               <Sparkles className="w-8 h-8 text-slate-600" />
               <h3 className="text-lg font-medium text-slate-700">AI Voice</h3>
-              <p className="text-sm text-slate-500 font-light text-center">Advanced voice cloning and natural speech</p>
+              <p className="text-sm text-slate-500 font-light text-center">
+                Advanced voice cloning and natural speech
+              </p>
             </div>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }
