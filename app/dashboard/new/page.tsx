@@ -167,16 +167,23 @@ export default function NewProjectPage() {
     if (!projectId || !targetLanguage || isSubmitting) return
     setIsSubmitting(true)
     try {
-      await fetch(`/api/projects/${projectId}`, {
-        method: 'PATCH',
+      const res = await fetch(`/api/projects/${projectId}/start`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source_language: sourceLanguage || null,
           target_language: targetLanguage,
         }),
       })
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string }
+        setError(err.error ?? 'Failed to start processing. Please try again.')
+        setIsSubmitting(false)
+        return
+      }
       router.push(`/project/${projectId}`)
     } catch {
+      setError('Network error. Please try again.')
       setIsSubmitting(false)
     }
   }
@@ -304,6 +311,16 @@ export default function NewProjectPage() {
                   Choose the source and target language for dubbing.
                 </p>
               </div>
+
+              {error && (
+                <div className="flex items-start space-x-3 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div className="flex-1">{error}</div>
+                  <button onClick={() => setError(null)} className="shrink-0">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
 
               {file && (
                 <div className="flex items-center space-x-3 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
