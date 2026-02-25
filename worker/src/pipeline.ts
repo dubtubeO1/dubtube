@@ -100,20 +100,35 @@ export async function runPipeline(projectId: string): Promise<void> {
     await setStatus(projectId, 'generating_audio')
     console.log(`[${projectId}] Generating TTS for ${segments.length} segments...`)
 
-    // Create the Speaker 1 row
-    await supabase.from('speakers').insert({
+    // Build speaker rows — one per unique speaker label returned by diarization.
+    // Preserves insertion order so SPEAKER_00 is always the first speaker.
+    const uniqueSpeakerIds = [
+      ...new Set(segments.map((s) => s.speaker ?? 'SPEAKER_00')),
+    ]
+    const speakerRows = uniqueSpeakerIds.map((speakerId) => ({
       project_id: projectId,
-      speaker_id: 'SPEAKER_0',
-      speaker_name: 'Speaker 1',
+      speaker_id: speakerId,
+      speaker_name: speakerId, // default display name — user can rename in editor
       voice_id: '21m00Tcm4TlvDq8ikWAM',
       is_cloned: false,
-    })
+    }))
+
+    const { error: speakersInsertError } = await supabase
+      .from('speakers')
+      .insert(speakerRows)
+
+    if (speakersInsertError) {
+      throw new Error(`Failed to insert speakers: ${speakersInsertError.message}`)
+    }
+
+    console.log(`[${projectId}] Created ${uniqueSpeakerIds.length} speaker(s): ${uniqueSpeakerIds.join(', ')}`)
 
     // Generate TTS per segment and collect transcript rows
     const transcriptRows: Record<string, unknown>[] = []
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i]
       const translatedText = translatedTexts[i] ?? ''
+      const speakerId = segment.speaker ?? 'SPEAKER_00'
 
       console.log(`[${projectId}] TTS segment ${i + 1}/${segments.length}`)
       const { r2Key, voiceId } = await generateSegmentAudio(
@@ -125,8 +140,8 @@ export async function runPipeline(projectId: string): Promise<void> {
 
       transcriptRows.push({
         project_id: projectId,
-        speaker_id: 'SPEAKER_0',
-        speaker_name: 'Speaker 1',
+        speaker_id: speakerId,
+        speaker_name: speakerId,
         start_time: segment.start,
         end_time: segment.end,
         original_text: segment.text,

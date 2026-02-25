@@ -12,6 +12,7 @@ import {
   Play,
   Pause,
   RotateCcw,
+  RefreshCw,
   Save,
   Pencil,
 } from 'lucide-react'
@@ -113,16 +114,22 @@ export default function ProjectPage() {
   const [transcripts, setTranscripts] = useState<TranscriptRow[]>([])
   const [speakers, setSpeakers] = useState<SpeakerRow[]>([])
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({})
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   // ── Editor state ──
-  // draftTexts: pending unsaved translated_text changes, keyed by transcriptId
-  const [draftTexts, setDraftTexts] = useState<Record<string, string>>({})
+  // Separate draft maps: draftOriginal for original_text, draftTranslated for translated_text
+  const [draftOriginal, setDraftOriginal] = useState<Record<string, string>>({})
+  const [draftTranslated, setDraftTranslated] = useState<Record<string, string>>({})
   const [speakerDrafts, setSpeakerDrafts] = useState<Record<string, string>>({})
-  const [editingSpeakerId, setEditingSpeakerId] = useState<string | null>(null)
+  // editingTranscriptSpeakerId tracks which transcript row's speaker label is in edit mode.
+  // Using transcript.id (not speaker.id) ensures only one label is in edit mode at a time,
+  // even when multiple segments share the same speaker.
+  const [editingTranscriptSpeakerId, setEditingTranscriptSpeakerId] = useState<string | null>(null)
   const [savingNameIds, setSavingNameIds] = useState<Set<string>>(new Set())
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set())
+  const [retranslating, setRetranslating] = useState<Set<string>>(new Set())
   const [playingId, setPlayingId] = useState<string | null>(null)
 
   // ── Refs ──
@@ -130,11 +137,24 @@ export default function ProjectPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autosaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const audioUrlsFetchedRef = useRef(false)
-  // Always-current ref for draftTexts — avoids stale closure in saveAll/interval
-  const draftTextsRef = useRef(draftTexts)
-  draftTextsRef.current = draftTexts
+  // Always-current refs so saveAll and the 30s interval never see stale drafts
+  const draftOriginalRef = useRef(draftOriginal)
+  const draftTranslatedRef = useRef(draftTranslated)
+  draftOriginalRef.current = draftOriginal
+  draftTranslatedRef.current = draftTranslated
 
   // ── Fetching ──────────────────────────────────────────────────────────────
+
+  const fetchVideoUrl = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/video-url`)
+      if (!res.ok) return
+      const data = (await res.json()) as { url: string }
+      setVideoUrl(data.url)
+    } catch {
+      // Non-fatal — video player will simply not appear
+    }
+  }, [projectId])
 
   const fetchAudioUrls = useCallback(async () => {
     try {
@@ -167,19 +187,16 @@ export default function ProjectPage() {
         if (!audioUrlsFetchedRef.current) {
           audioUrlsFetchedRef.current = true
           void fetchAudioUrls()
+          void fetchVideoUrl()
         }
       }
     } catch {
       setLoadError('Network error — could not load project')
     }
-  }, [projectId, fetchAudioUrls])
+  }, [projectId, fetchAudioUrls, fetchVideoUrl])
 
-  // Initial load
-  useEffect(() => {
-    void fetchProject()
-  }, [fetchProject])
+  useEffect(() => { void fetchProject() }, [fetchProject])
 
-  // Polling — stops once a terminal status is reached
   useEffect(() => {
     if (!project) return
     if (TERMINAL_STATUSES.has(project.status)) return
@@ -189,64 +206,83 @@ export default function ProjectPage() {
 
   // ── Autosave ──────────────────────────────────────────────────────────────
 
-  // saveAll reads from the ref so it never sees a stale draftTexts value
+  // saveAll reads from refs to always see the latest drafts regardless of when it fires
   const saveAll = useCallback(async () => {
-    const toSave = { ...draftTextsRef.current }
+    const toSave: Record<string, { original_text?: string; translated_text?: string }> = {}
+    for (const [id, text] of Object.entries(draftOriginalRef.current)) {
+      toSave[id] = { original_text: text }
+    }
+    for (const [id, text] of Object.entries(draftTranslatedRef.current)) {
+      toSave[id] = { ...(toSave[id] ?? {}), translated_text: text }
+    }
+
     if (Object.keys(toSave).length === 0) return
     setSaveStatus('saving')
     try {
       await Promise.all(
-        Object.entries(toSave).map(([transcriptId, translated_text]) =>
+        Object.entries(toSave).map(([transcriptId, fields]) =>
           fetch(`/api/projects/${projectId}/transcripts/${transcriptId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ translated_text }),
+            body: JSON.stringify(fields),
           }),
         ),
       )
-      // Only clear keys that were saved — new edits made during the save are preserved
-      setDraftTexts((prev) => {
+      // Clear only the keys that were saved — new edits made during the save are preserved
+      setDraftOriginal((prev) => {
         const next = { ...prev }
-        for (const id of Object.keys(toSave)) delete next[id]
+        for (const id of Object.keys(toSave)) {
+          if (toSave[id].original_text !== undefined) delete next[id]
+        }
+        return next
+      })
+      setDraftTranslated((prev) => {
+        const next = { ...prev }
+        for (const id of Object.keys(toSave)) {
+          if (toSave[id].translated_text !== undefined) delete next[id]
+        }
         return next
       })
       setSaveStatus('saved')
-      setTimeout(
-        () => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)),
-        2500,
-      )
+      setTimeout(() => setSaveStatus((s) => (s === 'saved' ? 'idle' : s)), 2500)
     } catch {
       setSaveStatus('error')
     }
   }, [projectId])
 
-  const onTextChange = useCallback(
+  const triggerDebounce = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => { void saveAll() }, AUTOSAVE_DEBOUNCE_MS)
+  }, [saveAll])
+
+  const onOriginalChange = useCallback(
     (transcriptId: string, value: string) => {
-      setDraftTexts((prev) => ({ ...prev, [transcriptId]: value }))
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-      debounceRef.current = setTimeout(() => { void saveAll() }, AUTOSAVE_DEBOUNCE_MS)
+      setDraftOriginal((prev) => ({ ...prev, [transcriptId]: value }))
+      triggerDebounce()
     },
-    [saveAll],
+    [triggerDebounce],
   )
 
-  // 30-second interval autosave
+  const onTranslatedChange = useCallback(
+    (transcriptId: string, value: string) => {
+      setDraftTranslated((prev) => ({ ...prev, [transcriptId]: value }))
+      triggerDebounce()
+    },
+    [triggerDebounce],
+  )
+
   useEffect(() => {
     if (project?.status !== 'completed') return
     autosaveIntervalRef.current = setInterval(() => {
-      if (Object.keys(draftTextsRef.current).length > 0) void saveAll()
+      const hasAny =
+        Object.keys(draftOriginalRef.current).length > 0 ||
+        Object.keys(draftTranslatedRef.current).length > 0
+      if (hasAny) void saveAll()
     }, AUTOSAVE_INTERVAL_MS)
-    return () => {
-      if (autosaveIntervalRef.current) clearInterval(autosaveIntervalRef.current)
-    }
+    return () => { if (autosaveIntervalRef.current) clearInterval(autosaveIntervalRef.current) }
   }, [project?.status, saveAll])
 
-  // Cleanup debounce on unmount
-  useEffect(
-    () => () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-    },
-    [],
-  )
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
 
   // ── Playback ──────────────────────────────────────────────────────────────
 
@@ -254,46 +290,31 @@ export default function ProjectPage() {
     (transcriptId: string) => {
       const url = audioUrls[transcriptId]
       if (!url) return
-
-      // Toggle off if already playing this segment
       if (playingId === transcriptId) {
         audioRef.current?.pause()
         audioRef.current = null
         setPlayingId(null)
         return
       }
-
-      // Stop any other playing audio
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current = null
-      }
-
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null }
       const audio = new Audio(url)
       audioRef.current = audio
       setPlayingId(transcriptId)
-      audio.onended = () => {
-        setPlayingId(null)
-        audioRef.current = null
-      }
-      audio.onerror = () => {
-        setPlayingId(null)
-        audioRef.current = null
-      }
+      audio.onended = () => { setPlayingId(null); audioRef.current = null }
+      audio.onerror = () => { setPlayingId(null); audioRef.current = null }
       void audio.play()
     },
     [audioUrls, playingId],
   )
 
-  // ── Regenerate ────────────────────────────────────────────────────────────
+  // ── Regenerate (re-TTS from current translated text) ──────────────────────
 
   const handleRegenerate = useCallback(
     async (transcriptId: string) => {
-      // Save any pending text for this segment before regenerating so the API uses the latest text
-      const pendingText = draftTextsRef.current[transcriptId]
+      const pendingText = draftTranslatedRef.current[transcriptId]
       if (pendingText !== undefined) {
         try {
-          const saveRes = await fetch(
+          const res = await fetch(
             `/api/projects/${projectId}/transcripts/${transcriptId}`,
             {
               method: 'PATCH',
@@ -301,25 +322,14 @@ export default function ProjectPage() {
               body: JSON.stringify({ translated_text: pendingText }),
             },
           )
-          if (saveRes.ok) {
-            setDraftTexts((prev) => {
-              const next = { ...prev }
-              delete next[transcriptId]
-              return next
-            })
+          if (res.ok) {
+            setDraftTranslated((prev) => { const n = { ...prev }; delete n[transcriptId]; return n })
           }
-        } catch {
-          // Continue — regenerate will use the value already in the DB
-        }
+        } catch { /* continue */ }
       }
-
-      // Stop audio if this segment is currently playing
       if (playingId === transcriptId) {
-        audioRef.current?.pause()
-        audioRef.current = null
-        setPlayingId(null)
+        audioRef.current?.pause(); audioRef.current = null; setPlayingId(null)
       }
-
       setRegenerating((prev) => new Set(prev).add(transcriptId))
       try {
         const res = await fetch(
@@ -329,35 +339,68 @@ export default function ProjectPage() {
         if (!res.ok) return
         const data = (await res.json()) as { url: string }
         setAudioUrls((prev) => ({ ...prev, [transcriptId]: data.url }))
-      } catch {
-        // Silent fail — user can try again
-      } finally {
-        setRegenerating((prev) => {
-          const next = new Set(prev)
-          next.delete(transcriptId)
-          return next
-        })
+      } catch { /* silent fail */ } finally {
+        setRegenerating((prev) => { const n = new Set(prev); n.delete(transcriptId); return n })
       }
     },
     [projectId, playingId],
   )
 
+  // ── Retranslate (re-DeepL from current original text) ────────────────────
+
+  const handleRetranslate = useCallback(
+    async (transcriptId: string) => {
+      const pendingOriginal = draftOriginalRef.current[transcriptId]
+      if (pendingOriginal !== undefined) {
+        try {
+          const res = await fetch(
+            `/api/projects/${projectId}/transcripts/${transcriptId}`,
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ original_text: pendingOriginal }),
+            },
+          )
+          if (res.ok) {
+            setDraftOriginal((prev) => { const n = { ...prev }; delete n[transcriptId]; return n })
+          }
+        } catch { /* continue */ }
+      }
+      setRetranslating((prev) => new Set(prev).add(transcriptId))
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/transcripts/${transcriptId}/retranslate`,
+          { method: 'POST' },
+        )
+        if (!res.ok) return
+        const data = (await res.json()) as { translated_text: string }
+        // Update the transcript and clear any stale translated draft
+        setTranscripts((prev) =>
+          prev.map((t) =>
+            t.id === transcriptId ? { ...t, translated_text: data.translated_text } : t,
+          ),
+        )
+        setDraftTranslated((prev) => { const n = { ...prev }; delete n[transcriptId]; return n })
+      } catch { /* silent fail */ } finally {
+        setRetranslating((prev) => { const n = new Set(prev); n.delete(transcriptId); return n })
+      }
+    },
+    [projectId],
+  )
+
   // ── Speaker name editing ──────────────────────────────────────────────────
 
   const handleSpeakerSave = useCallback(
-    async (speaker: SpeakerRow) => {
+    async (transcriptId: string, speaker: SpeakerRow) => {
       const draft = speakerDrafts[speaker.id]
       if (draft === undefined || draft.trim() === (speaker.speaker_name ?? '')) {
-        setEditingSpeakerId(null)
+        setEditingTranscriptSpeakerId(null)
         return
       }
       const trimmed = draft.trim()
-      if (!trimmed) {
-        setEditingSpeakerId(null)
-        return
-      }
+      if (!trimmed) { setEditingTranscriptSpeakerId(null); return }
 
-      setEditingSpeakerId(null)
+      setEditingTranscriptSpeakerId(null)
       setSavingNameIds((prev) => new Set(prev).add(speaker.id))
       try {
         const res = await fetch(`/api/projects/${projectId}/speakers/${speaker.id}`, {
@@ -369,37 +412,28 @@ export default function ProjectPage() {
           setSpeakers((prev) =>
             prev.map((s) => (s.id === speaker.id ? { ...s, speaker_name: trimmed } : s)),
           )
+          // Cascade: update all transcript rows that share this speaker_id
           setTranscripts((prev) =>
             prev.map((t) =>
               t.speaker_id === speaker.speaker_id ? { ...t, speaker_name: trimmed } : t,
             ),
           )
-          setSpeakerDrafts((prev) => {
-            const next = { ...prev }
-            delete next[speaker.id]
-            return next
-          })
+          setSpeakerDrafts((prev) => { const n = { ...prev }; delete n[speaker.id]; return n })
         }
-      } catch {
-        // Revert is implicit — speaker state was not updated on failure
-      } finally {
-        setSavingNameIds((prev) => {
-          const next = new Set(prev)
-          next.delete(speaker.id)
-          return next
-        })
+      } catch { /* revert is implicit */ } finally {
+        setSavingNameIds((prev) => { const n = new Set(prev); n.delete(speaker.id); return n })
       }
     },
     [speakerDrafts, projectId],
   )
 
-  const hasPendingEdits = Object.keys(draftTexts).length > 0
+  const hasPendingEdits =
+    Object.keys(draftOriginal).length > 0 || Object.keys(draftTranslated).length > 0
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 relative overflow-hidden">
-      {/* Background blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-r from-slate-200 to-slate-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob" />
         <div className="absolute top-40 right-10 w-72 h-72 bg-gradient-to-r from-slate-300 to-slate-400 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob" />
@@ -493,15 +527,11 @@ export default function ProjectPage() {
                         }`}
                       >
                         <div className="shrink-0">
-                          {state === 'done' && (
-                            <CheckCircle className="w-5 h-5 text-green-500" />
-                          )}
+                          {state === 'done' && <CheckCircle className="w-5 h-5 text-green-500" />}
                           {state === 'current' && (
                             <Loader2 className="w-5 h-5 text-slate-600 animate-spin" />
                           )}
-                          {state === 'pending' && (
-                            <Circle className="w-5 h-5 text-slate-300" />
-                          )}
+                          {state === 'pending' && <Circle className="w-5 h-5 text-slate-300" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p
@@ -516,9 +546,7 @@ export default function ProjectPage() {
                             {stage.label}
                           </p>
                           {state === 'current' && (
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              {stage.description}
-                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">{stage.description}</p>
                           )}
                         </div>
                       </div>
@@ -548,9 +576,7 @@ export default function ProjectPage() {
                   </p>
                 )}
               </div>
-
               <div className="flex items-center gap-3 shrink-0">
-                {/* Autosave status */}
                 {saveStatus === 'saving' && (
                   <span className="text-xs text-slate-400 flex items-center gap-1.5">
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -566,8 +592,6 @@ export default function ProjectPage() {
                 {saveStatus === 'error' && (
                   <span className="text-xs text-red-500">Save failed — try again</span>
                 )}
-
-                {/* Manual save */}
                 <button
                   onClick={() => void saveAll()}
                   disabled={!hasPendingEdits || saveStatus === 'saving'}
@@ -576,8 +600,6 @@ export default function ProjectPage() {
                   <Save className="w-3.5 h-3.5" />
                   Save
                 </button>
-
-                {/* Generate — disabled in M4 */}
                 <button
                   disabled
                   title="Coming in the next update"
@@ -588,7 +610,20 @@ export default function ProjectPage() {
               </div>
             </div>
 
-            {/* Transcript card */}
+            {/* Video player */}
+            {videoUrl && (
+              <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
+                <video
+                  src={videoUrl}
+                  controls
+                  preload="metadata"
+                  playsInline
+                  className="w-full max-h-80 bg-black"
+                />
+              </div>
+            )}
+
+            {/* Transcript editor */}
             {transcripts.length === 0 ? (
               <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-lg p-8 text-center text-slate-400 text-sm">
                 No transcript segments found.
@@ -598,116 +633,141 @@ export default function ProjectPage() {
                 {/* Column headers */}
                 <div className="grid grid-cols-2 gap-6 px-6 py-3 bg-slate-50/80 border-b border-slate-200">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                    Original
-                    {project.source_language ? ` (${project.source_language})` : ''}
+                    Original{project.source_language ? ` (${project.source_language})` : ''}
                   </p>
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                    Translation
-                    {project.target_language ? ` (${project.target_language})` : ''}
+                    Translation{project.target_language ? ` (${project.target_language})` : ''}
                   </p>
                 </div>
 
-                {/* Segment rows */}
                 <div className="divide-y divide-slate-100">
-                  {transcripts.map((transcript, index) => {
-                    const prevSpeakerId =
-                      index > 0 ? transcripts[index - 1].speaker_id : null
-                    const showSpeakerHeader = transcript.speaker_id !== prevSpeakerId
+                  {transcripts.map((transcript) => {
                     const speaker = speakers.find(
                       (s) => s.speaker_id === transcript.speaker_id,
                     )
-
-                    const displayText =
-                      draftTexts[transcript.id] ?? transcript.translated_text ?? ''
-                    const isDirty = transcript.id in draftTexts
+                    const origDisplay =
+                      draftOriginal[transcript.id] ?? transcript.original_text ?? ''
+                    const translDisplay =
+                      draftTranslated[transcript.id] ?? transcript.translated_text ?? ''
+                    const isOrigDirty = transcript.id in draftOriginal
+                    const isTranslDirty = transcript.id in draftTranslated
                     const isRegenerating = regenerating.has(transcript.id)
+                    const isRetranslating = retranslating.has(transcript.id)
                     const isPlaying = playingId === transcript.id
                     const hasAudio = !!audioUrls[transcript.id]
+                    const isEditingSpeaker = editingTranscriptSpeakerId === transcript.id
 
                     return (
-                      <div key={transcript.id}>
-                        {/* Speaker header — shown only when speaker changes */}
-                        {showSpeakerHeader && speaker && (
-                          <div className="flex items-center gap-2 px-6 pt-4 pb-1">
-                            {editingSpeakerId === speaker.id ? (
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="text"
-                                  autoFocus
-                                  value={
-                                    speakerDrafts[speaker.id] ?? speaker.speaker_name ?? ''
-                                  }
-                                  onChange={(e) =>
-                                    setSpeakerDrafts((prev) => ({
-                                      ...prev,
-                                      [speaker.id]: e.target.value,
-                                    }))
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') void handleSpeakerSave(speaker)
-                                    if (e.key === 'Escape') {
-                                      setEditingSpeakerId(null)
-                                      setSpeakerDrafts((prev) => {
-                                        const next = { ...prev }
-                                        delete next[speaker.id]
-                                        return next
-                                      })
-                                    }
-                                  }}
-                                  onBlur={() => void handleSpeakerSave(speaker)}
-                                  className="text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                                />
-                                {savingNameIds.has(speaker.id) && (
-                                  <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin" />
-                                )}
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setEditingSpeakerId(speaker.id)
+                      <div key={transcript.id} className="px-6 py-4 space-y-3">
+                        {/* Speaker label — shown above every segment, editable inline */}
+                        <div className="flex items-center gap-2">
+                          {isEditingSpeaker && speaker ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={
+                                  speakerDrafts[speaker.id] ?? speaker.speaker_name ?? ''
+                                }
+                                onChange={(e) =>
                                   setSpeakerDrafts((prev) => ({
                                     ...prev,
-                                    [speaker.id]: speaker.speaker_name ?? '',
+                                    [speaker.id]: e.target.value,
                                   }))
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter')
+                                    void handleSpeakerSave(transcript.id, speaker)
+                                  if (e.key === 'Escape') {
+                                    setEditingTranscriptSpeakerId(null)
+                                    setSpeakerDrafts((prev) => {
+                                      const n = { ...prev }
+                                      delete n[speaker.id]
+                                      return n
+                                    })
+                                  }
                                 }}
-                                className="flex items-center gap-1.5 group"
-                              >
-                                <span className="text-xs font-medium text-slate-500 px-2.5 py-1 bg-slate-100 rounded-md group-hover:bg-slate-200 transition-colors">
-                                  {speaker.speaker_name ?? 'Unknown Speaker'}
-                                </span>
-                                <Pencil className="w-3 h-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              </button>
-                            )}
-                          </div>
-                        )}
+                                onBlur={() => void handleSpeakerSave(transcript.id, speaker)}
+                                className="text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                              />
+                              {savingNameIds.has(speaker.id) && (
+                                <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin" />
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (!speaker) return
+                                setEditingTranscriptSpeakerId(transcript.id)
+                                setSpeakerDrafts((prev) => ({
+                                  ...prev,
+                                  [speaker.id]: speaker.speaker_name ?? '',
+                                }))
+                              }}
+                              className="flex items-center gap-1.5 group"
+                            >
+                              <span className="text-xs font-medium text-slate-500 px-2.5 py-1 bg-slate-100 rounded-md group-hover:bg-slate-200 transition-colors">
+                                {speaker?.speaker_name ??
+                                  transcript.speaker_name ??
+                                  'Unknown Speaker'}
+                              </span>
+                              <Pencil className="w-3 h-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </button>
+                          )}
+                        </div>
 
-                        {/* Two-column segment row */}
-                        <div className="grid grid-cols-2 gap-6 px-6 py-4">
-                          {/* Left: original text — display only, no play button */}
-                          <div className="space-y-1.5">
+                        {/* Two-column segment content */}
+                        <div className="grid grid-cols-2 gap-6">
+                          {/* Left: original text — editable */}
+                          <div className="space-y-2">
                             <p className="text-xs text-slate-400 font-mono tabular-nums">
                               {formatTime(transcript.start_time)} –{' '}
                               {formatTime(transcript.end_time)}
                             </p>
-                            <p className="text-sm text-slate-600 leading-relaxed">
-                              {transcript.original_text ?? ''}
-                            </p>
+                            <textarea
+                              value={origDisplay}
+                              onChange={(e) =>
+                                onOriginalChange(transcript.id, e.target.value)
+                              }
+                              rows={Math.max(2, Math.ceil((origDisplay.length || 1) / 55))}
+                              className={`w-full text-sm text-slate-600 leading-relaxed bg-white border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-400 resize-none transition-colors ${
+                                isOrigDirty
+                                  ? 'border-amber-300 bg-amber-50/50'
+                                  : 'border-slate-200'
+                              }`}
+                            />
+                            <button
+                              onClick={() => void handleRetranslate(transcript.id)}
+                              disabled={isRetranslating}
+                              title="Re-translate this segment with DeepL"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {isRetranslating ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              )}
+                              {isRetranslating ? 'Translating…' : 'Re-translate'}
+                            </button>
                           </div>
 
                           {/* Right: translated text — editable */}
                           <div className="space-y-2">
+                            {/* Spacer to align with timestamp on left */}
+                            <p className="text-xs text-slate-400 select-none">&nbsp;</p>
                             <textarea
-                              value={displayText}
-                              onChange={(e) => onTextChange(transcript.id, e.target.value)}
-                              rows={Math.max(2, Math.ceil((displayText.length || 1) / 55))}
+                              value={translDisplay}
+                              onChange={(e) =>
+                                onTranslatedChange(transcript.id, e.target.value)
+                              }
+                              rows={Math.max(2, Math.ceil((translDisplay.length || 1) / 55))}
                               className={`w-full text-sm text-slate-700 leading-relaxed bg-white border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-400 resize-none transition-colors ${
-                                isDirty
+                                isTranslDirty
                                   ? 'border-amber-300 bg-amber-50/50'
                                   : 'border-slate-200'
                               }`}
                             />
                             <div className="flex items-center gap-2">
-                              {/* Play / Pause button */}
                               <button
                                 onClick={() => handlePlay(transcript.id)}
                                 disabled={!hasAudio}
@@ -727,8 +787,6 @@ export default function ProjectPage() {
                                 )}
                                 {isPlaying ? 'Pause' : 'Play'}
                               </button>
-
-                              {/* Regenerate button */}
                               <button
                                 onClick={() => void handleRegenerate(transcript.id)}
                                 disabled={isRegenerating}

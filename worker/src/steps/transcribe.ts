@@ -10,6 +10,8 @@ export interface TranscriptSegment {
   start: number
   end: number
   text: string
+  /** Speaker label from diarization, e.g. 'SPEAKER_00'. Null when not available. */
+  speaker: string | null
 }
 
 export interface TranscribeResult {
@@ -37,6 +39,7 @@ export async function transcribeVideo(videoPath: string): Promise<TranscribeResu
     formData.append('file', audioBlob, 'audio.mp3')
     formData.append('model', 'whisper-1')
     formData.append('response_format', 'verbose_json')
+    formData.append('speaker_labels', 'true')
 
     const response = await fetch('https://api.lemonfox.ai/v1/audio/transcriptions', {
       method: 'POST',
@@ -51,11 +54,16 @@ export async function transcribeVideo(videoPath: string): Promise<TranscribeResu
 
     const data = (await response.json()) as {
       language: string
-      segments: Array<{ start: number; end: number; text: string }>
+      segments: Array<{ start: number; end: number; text: string; speaker?: string }>
     }
 
     const segments: TranscriptSegment[] = data.segments
-      .map((s) => ({ start: s.start, end: s.end, text: s.text.trim() }))
+      .map((s) => ({
+        start: s.start,
+        end: s.end,
+        text: s.text.trim(),
+        speaker: s.speaker ?? null,
+      }))
       .filter((s) => s.text.length > 0)
 
     return { segments, detectedLanguage: data.language }
