@@ -24,12 +24,15 @@ export async function transcribeVideo(videoPath: string): Promise<TranscribeResu
   const apiKey = process.env.LEMONFOX_API_KEY
   if (!apiKey) throw new Error('Missing LEMONFOX_API_KEY')
 
-  // Extract audio: mono, 16kHz, 64kbps MP3 — keeps file under 25 MB Lemonfox limit
+  // Extract audio: stereo, 22kHz, 128kbps MP3.
+  // Keep stereo and higher quality so the diarization model retains enough acoustic
+  // information to distinguish speakers. Mono/16kHz/64kbps strips features that
+  // pitch + timbre-based speaker separation depends on.
   const audioPath = path.join(os.tmpdir(), `${path.basename(videoPath, path.extname(videoPath))}_audio.mp3`)
 
   try {
     await execAsync(
-      `ffmpeg -y -i "${videoPath}" -vn -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k "${audioPath}"`,
+      `ffmpeg -y -i "${videoPath}" -vn -acodec libmp3lame -ar 22050 -ac 2 -b:a 128k "${audioPath}"`,
     )
 
     const audioBuffer = fs.readFileSync(audioPath)
