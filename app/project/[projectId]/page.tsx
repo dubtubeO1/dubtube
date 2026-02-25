@@ -228,6 +228,18 @@ export default function ProjectPage() {
           }),
         ),
       )
+      // Update transcripts state with saved values so textareas don't revert after drafts are cleared
+      setTranscripts((prev) =>
+        prev.map((t) => {
+          const saved = toSave[t.id]
+          if (!saved) return t
+          return {
+            ...t,
+            ...(saved.original_text !== undefined ? { original_text: saved.original_text } : {}),
+            ...(saved.translated_text !== undefined ? { translated_text: saved.translated_text } : {}),
+          }
+        }),
+      )
       // Clear only the keys that were saved — new edits made during the save are preserved
       setDraftOriginal((prev) => {
         const next = { ...prev }
