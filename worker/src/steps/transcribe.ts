@@ -3,15 +3,8 @@ import path from 'path'
 import os from 'os'
 import { exec } from 'child_process'
 import { promisify } from 'util'
-// ffmpeg-static ships a self-contained ffmpeg binary — no system install needed
-import ffmpegStatic from 'ffmpeg-static'
 
 const execAsync = promisify(exec)
-
-function getFfmpegPath(): string {
-  if (!ffmpegStatic) throw new Error('ffmpeg-static: no binary found for this platform')
-  return ffmpegStatic
-}
 
 export interface TranscriptSegment {
   start: number
@@ -33,9 +26,8 @@ export async function transcribeVideo(videoPath: string): Promise<TranscribeResu
   const audioPath = path.join(os.tmpdir(), `${path.basename(videoPath, path.extname(videoPath))}_audio.mp3`)
 
   try {
-    const ffmpeg = getFfmpegPath()
     await execAsync(
-      `"${ffmpeg}" -y -i "${videoPath}" -vn -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k "${audioPath}"`,
+      `ffmpeg -y -i "${videoPath}" -vn -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k "${audioPath}"`,
     )
 
     const audioBuffer = fs.readFileSync(audioPath)
