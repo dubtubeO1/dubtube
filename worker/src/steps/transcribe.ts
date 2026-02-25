@@ -40,11 +40,12 @@ export async function transcribeVideo(videoPath: string): Promise<TranscribeResu
 
     const formData = new FormData()
     formData.append('file', audioBlob, 'audio.mp3')
-    formData.append('model', 'whisper-1')
+    // Do NOT specify model: Lemonfox routes through their diarization-enabled
+    // pipeline by default. Explicitly setting 'whisper-1' hits the base
+    // OpenAI-compatible endpoint that skips speaker separation.
     formData.append('response_format', 'verbose_json')
-    // Both parameter names appear in Lemonfox docs; send both to ensure diarization activates
+    formData.append('timestamp_granularities[]', 'word')
     formData.append('speaker_labels', 'true')
-    formData.append('diarize', 'true')
 
     const response = await fetch('https://api.lemonfox.ai/v1/audio/transcriptions', {
       method: 'POST',
