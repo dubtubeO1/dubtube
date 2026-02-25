@@ -39,7 +39,9 @@ export async function transcribeVideo(videoPath: string): Promise<TranscribeResu
     formData.append('file', audioBlob, 'audio.mp3')
     formData.append('model', 'whisper-1')
     formData.append('response_format', 'verbose_json')
+    // Both parameter names appear in Lemonfox docs; send both to ensure diarization activates
     formData.append('speaker_labels', 'true')
+    formData.append('diarize', 'true')
 
     const response = await fetch('https://api.lemonfox.ai/v1/audio/transcriptions', {
       method: 'POST',
@@ -55,6 +57,11 @@ export async function transcribeVideo(videoPath: string): Promise<TranscribeResu
     const data = (await response.json()) as {
       language: string
       segments: Array<{ start: number; end: number; text: string; speaker?: string }>
+    }
+
+    // Log first segment to verify diarization is working in Railway logs
+    if (data.segments.length > 0) {
+      console.log('[transcribe] First segment sample:', JSON.stringify(data.segments[0]))
     }
 
     const segments: TranscriptSegment[] = data.segments
