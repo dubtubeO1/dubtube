@@ -63,11 +63,6 @@ export async function transcribeVideo(videoPath: string): Promise<TranscribeResu
       segments: Array<{ start: number; end: number; text: string; speaker?: string }>
     }
 
-    // Log first segment to verify diarization is working in Railway logs
-    if (data.segments.length > 0) {
-      console.log('[transcribe] First segment sample:', JSON.stringify(data.segments[0]))
-    }
-
     const segments: TranscriptSegment[] = data.segments
       .map((s) => ({
         start: s.start,

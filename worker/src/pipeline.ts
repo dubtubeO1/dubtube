@@ -6,6 +6,7 @@ import { downloadFromR2 } from './lib/r2'
 import { transcribeVideo } from './steps/transcribe'
 import { translateSegments } from './steps/translate'
 import { generateSegmentAudio } from './steps/tts'
+import { mixDubbedAudio } from './steps/mix-audio'
 
 type ProjectStatus =
   | 'uploading'
@@ -15,6 +16,8 @@ type ProjectStatus =
   | 'translating'
   | 'generating_audio'
   | 'completed'
+  | 'delivering'
+  | 'delivered'
   | 'error'
 
 async function setStatus(
@@ -28,6 +31,27 @@ async function setStatus(
     .update({ status, updated_at: new Date().toISOString(), ...extra })
     .eq('id', projectId)
 }
+
+// ── ffprobe duration helper ───────────────────────────────────────────────────
+
+import { exec } from 'child_process'
+import { promisify } from 'util'
+
+const execAsync = promisify(exec)
+
+async function probeDuration(videoPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execAsync(
+      `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
+    )
+    const parsed = parseFloat(stdout.trim())
+    return isNaN(parsed) ? null : parsed
+  } catch {
+    return null
+  }
+}
+
+// ── Main pipeline ─────────────────────────────────────────────────────────────
 
 export async function runPipeline(projectId: string): Promise<void> {
   const supabase = getSupabaseAdmin()
@@ -68,6 +92,16 @@ export async function runPipeline(projectId: string): Promise<void> {
     const videoBuffer = await downloadFromR2(video_r2_key)
     fs.writeFileSync(videoPath, videoBuffer)
     console.log(`[${projectId}] Video downloaded (${videoBuffer.length} bytes)`)
+
+    // ── Probe duration and store immediately ───────────────────────────────
+    const videoDuration = await probeDuration(videoPath)
+    if (videoDuration !== null) {
+      console.log(`[${projectId}] Video duration: ${videoDuration.toFixed(2)}s`)
+      await supabase
+        .from('projects')
+        .update({ video_duration_seconds: videoDuration, updated_at: new Date().toISOString() })
+        .eq('id', projectId)
+    }
 
     // ── Transcribing ───────────────────────────────────────────────────────
     await setStatus(projectId, 'transcribing')
@@ -173,6 +207,91 @@ export async function runPipeline(projectId: string): Promise<void> {
   } finally {
     if (videoPath && fs.existsSync(videoPath)) {
       try { fs.unlinkSync(videoPath) } catch { /* ignore */ }
+    }
+  }
+}
+
+// ── Deliver pipeline ──────────────────────────────────────────────────────────
+
+export async function runDeliver(projectId: string): Promise<void> {
+  const supabase = getSupabaseAdmin()
+
+  try {
+    // ── Fetch project + transcripts ────────────────────────────────────────
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('id, video_r2_key, video_duration_seconds')
+      .eq('id', projectId)
+      .single()
+
+    if (projectError || !project) {
+      throw new Error('Project not found')
+    }
+
+    const { video_r2_key, video_duration_seconds } = project as {
+      video_r2_key: string | null
+      video_duration_seconds: number | null
+    }
+
+    if (!video_r2_key) throw new Error('Project has no video_r2_key')
+
+    const clerkUserId = video_r2_key.split('/')[0]
+    if (!clerkUserId) throw new Error('Could not derive clerkUserId from video_r2_key')
+
+    const { data: transcripts, error: transcriptsError } = await supabase
+      .from('transcripts')
+      .select('id, start_time, end_time, segment_audio_r2_key, duration_match')
+      .eq('project_id', projectId)
+      .order('start_time', { ascending: true })
+
+    if (transcriptsError || !transcripts) {
+      throw new Error('Failed to fetch transcripts')
+    }
+
+    const segments = transcripts as Array<{
+      id: string
+      start_time: number | null
+      end_time: number | null
+      segment_audio_r2_key: string | null
+      duration_match: boolean
+    }>
+
+    console.log(`[${projectId}] Mixing ${segments.length} segment(s)...`)
+
+    // ── Mix dubbed audio ───────────────────────────────────────────────────
+    const dubbedR2Key = await mixDubbedAudio(
+      segments,
+      video_duration_seconds,
+      projectId,
+      clerkUserId,
+    )
+
+    // ── Mark delivered ─────────────────────────────────────────────────────
+    await supabase
+      .from('projects')
+      .update({
+        status: 'delivered',
+        dubbed_audio_r2_key: dubbedR2Key,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', projectId)
+
+    console.log(`[${projectId}] Deliver complete — r2Key: ${dubbedR2Key}`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[${projectId}] Deliver failed:`, message)
+
+    try {
+      await supabase
+        .from('projects')
+        .update({
+          status: 'error',
+          error_message: message,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', projectId)
+    } catch (updateErr) {
+      console.error(`[${projectId}] Failed to write error status:`, updateErr)
     }
   }
 }

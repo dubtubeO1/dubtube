@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express'
-import { runPipeline } from './pipeline'
+import { runPipeline, runDeliver } from './pipeline'
 
 const app = express()
 app.use(express.json())
@@ -35,6 +35,32 @@ app.post('/process', (req: Request, res: Response) => {
 
   runPipeline(projectId).catch((err: unknown) => {
     console.error('Unhandled pipeline error', { projectId, error: err })
+  })
+})
+
+// ── Deliver trigger ───────────────────────────────────────────────────────────
+
+app.post('/deliver', (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization
+
+  if (!WORKER_SECRET || authHeader !== `Bearer ${WORKER_SECRET}`) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  const body = req.body as { projectId?: unknown }
+  const { projectId } = body
+
+  if (!projectId || typeof projectId !== 'string') {
+    res.status(400).json({ error: 'projectId is required' })
+    return
+  }
+
+  // Respond immediately — deliver runs in the background
+  res.json({ ok: true, projectId })
+
+  runDeliver(projectId).catch((err: unknown) => {
+    console.error('Unhandled deliver error', { projectId, error: err })
   })
 })
 

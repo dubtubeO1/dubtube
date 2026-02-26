@@ -15,6 +15,8 @@ import {
   RefreshCw,
   Save,
   Pencil,
+  Download,
+  Timer,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -27,6 +29,8 @@ type ProjectStatus =
   | 'translating'
   | 'generating_audio'
   | 'completed'
+  | 'delivering'
+  | 'delivered'
   | 'error'
 
 interface Project {
@@ -48,6 +52,7 @@ interface TranscriptRow {
   translated_text: string | null
   segment_audio_r2_key: string | null
   voice_id: string | null
+  duration_match: boolean
 }
 
 interface SpeakerRow {
@@ -66,6 +71,11 @@ const PIPELINE_STAGES: { key: ProjectStatus; label: string; description: string 
   { key: 'completed', label: 'Complete', description: 'Transcript and voiceovers are ready' },
 ]
 
+const DELIVER_STAGES: { key: ProjectStatus; label: string; description: string }[] = [
+  { key: 'delivering', label: 'Mixing audio', description: 'Combining segment clips into dubbed audio track' },
+  { key: 'delivered', label: 'Done', description: 'Dubbed audio is ready to download' },
+]
+
 const STATUS_ORDER: Record<string, number> = {
   uploading: 0,
   ready: 0,
@@ -74,13 +84,15 @@ const STATUS_ORDER: Record<string, number> = {
   translating: 3,
   generating_audio: 4,
   completed: 5,
+  delivering: 6,
+  delivered: 7,
   error: 99,
 }
 
 const POLL_INTERVAL_MS = 3000
 const AUTOSAVE_DEBOUNCE_MS = 3000
 const AUTOSAVE_INTERVAL_MS = 30000
-const TERMINAL_STATUSES = new Set<string>(['completed', 'error'])
+const TERMINAL_STATUSES = new Set<string>(['completed', 'delivered', 'error'])
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -131,6 +143,8 @@ export default function ProjectPage() {
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set())
   const [retranslating, setRetranslating] = useState<Set<string>>(new Set())
   const [playingId, setPlayingId] = useState<string | null>(null)
+  const [delivering, setDelivering] = useState(false)
+  const [dubbedAudioUrl, setDubbedAudioUrl] = useState<string | null>(null)
 
   // ── Refs ──
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -181,7 +195,7 @@ export default function ProjectPage() {
         speakers: SpeakerRow[]
       }
       setProject(data.project)
-      if (data.project.status === 'completed') {
+      if (data.project.status === 'completed' || data.project.status === 'delivering' || data.project.status === 'delivered') {
         setTranscripts(data.transcripts)
         setSpeakers(data.speakers)
         if (!audioUrlsFetchedRef.current) {
@@ -284,7 +298,8 @@ export default function ProjectPage() {
   )
 
   useEffect(() => {
-    if (project?.status !== 'completed') return
+    const editorStatuses = new Set(['completed', 'delivering', 'delivered'])
+    if (!project?.status || !editorStatuses.has(project.status)) return
     autosaveIntervalRef.current = setInterval(() => {
       const hasAny =
         Object.keys(draftOriginalRef.current).length > 0 ||
@@ -400,6 +415,87 @@ export default function ProjectPage() {
     [projectId],
   )
 
+  // ── Deliver (generate dubbed audio) ──────────────────────────────────────
+
+  const handleDeliver = useCallback(async () => {
+    setDelivering(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/deliver`, { method: 'POST' })
+      if (!res.ok) {
+        console.error('Failed to start delivery')
+      }
+      // Status will update via polling; just let it proceed
+    } catch {
+      console.error('Deliver request failed')
+    } finally {
+      setDelivering(false)
+    }
+  }, [projectId])
+
+  const fetchDubbedAudioUrl = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/dubbed-audio-url`)
+      if (!res.ok) return
+      const data = (await res.json()) as { url: string }
+      setDubbedAudioUrl(data.url)
+    } catch {
+      // Non-fatal
+    }
+  }, [projectId])
+
+  // Fetch dubbed audio URL once project reaches delivered status
+  useEffect(() => {
+    if (project?.status === 'delivered' && !dubbedAudioUrl) {
+      void fetchDubbedAudioUrl()
+    }
+  }, [project?.status, dubbedAudioUrl, fetchDubbedAudioUrl])
+
+  // ── Duration match toggle ─────────────────────────────────────────────────
+
+  const handleDurationMatchToggle = useCallback(
+    async (transcriptId: string, currentValue: boolean) => {
+      const newValue = !currentValue
+      // Optimistic update
+      setTranscripts((prev) =>
+        prev.map((t) => (t.id === transcriptId ? { ...t, duration_match: newValue } : t)),
+      )
+      try {
+        await fetch(`/api/projects/${projectId}/transcripts/${transcriptId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ duration_match: newValue }),
+        })
+      } catch {
+        // Revert on failure
+        setTranscripts((prev) =>
+          prev.map((t) => (t.id === transcriptId ? { ...t, duration_match: currentValue } : t)),
+        )
+      }
+    },
+    [projectId],
+  )
+
+  const handleBulkDurationMatch = useCallback(
+    async (enable: boolean) => {
+      // Optimistic update all transcripts
+      setTranscripts((prev) => prev.map((t) => ({ ...t, duration_match: enable })))
+      try {
+        await Promise.all(
+          transcripts.map((t) =>
+            fetch(`/api/projects/${projectId}/transcripts/${t.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ duration_match: enable }),
+            }),
+          ),
+        )
+      } catch {
+        console.error('Bulk duration_match update failed')
+      }
+    },
+    [projectId, transcripts],
+  )
+
   // ── Speaker name editing ──────────────────────────────────────────────────
 
   const handleSpeakerSave = useCallback(
@@ -454,7 +550,7 @@ export default function ProjectPage() {
 
       <div
         className={`relative z-10 px-4 py-10 mx-auto ${
-          project?.status === 'completed' ? 'max-w-6xl' : 'max-w-2xl'
+          (project?.status === 'completed' || project?.status === 'delivering' || project?.status === 'delivered') ? 'max-w-6xl' : 'max-w-2xl'
         }`}
       >
         <Link
@@ -488,7 +584,7 @@ export default function ProjectPage() {
         )}
 
         {/* ── Pipeline view (processing in progress) ── */}
-        {project && project.status !== 'completed' && (
+        {project && project.status !== 'completed' && project.status !== 'delivering' && project.status !== 'delivered' && (
           <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-lg p-8 space-y-8">
             <div className="space-y-1">
               <h1 className="text-xl font-bold text-slate-700 truncate">{project.title}</h1>
@@ -573,8 +669,8 @@ export default function ProjectPage() {
           </div>
         )}
 
-        {/* ── Editor view (completed) ── */}
-        {project && project.status === 'completed' && (
+        {/* ── Editor view (completed / delivering / delivered) ── */}
+        {project && (project.status === 'completed' || project.status === 'delivering' || project.status === 'delivered') && (
           <div className="space-y-5">
             {/* Header card */}
             <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-lg px-6 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -612,13 +708,37 @@ export default function ProjectPage() {
                   <Save className="w-3.5 h-3.5" />
                   Save
                 </button>
-                <button
-                  disabled
-                  title="Coming in the next update"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 text-slate-400 text-sm font-medium cursor-not-allowed border border-slate-200"
-                >
-                  Generate Dubbed Video
-                </button>
+                {project.status === 'delivered' && dubbedAudioUrl ? (
+                  <a
+                    href={dubbedAudioUrl}
+                    download="dubbed_audio.mp3"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Dubbed Audio
+                  </a>
+                ) : project.status === 'delivering' ? (
+                  <button
+                    disabled
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 text-slate-400 text-sm font-medium cursor-not-allowed border border-slate-200"
+                  >
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Mixing audio…
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => void handleDeliver()}
+                    disabled={delivering}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {delivering ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    Generate Dubbed Audio
+                  </button>
+                )}
               </div>
             </div>
 
@@ -643,13 +763,25 @@ export default function ProjectPage() {
             ) : (
               <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
                 {/* Column headers */}
-                <div className="grid grid-cols-2 gap-6 px-6 py-3 bg-slate-50/80 border-b border-slate-200">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                    Original{project.source_language ? ` (${project.source_language})` : ''}
-                  </p>
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                    Translation{project.target_language ? ` (${project.target_language})` : ''}
-                  </p>
+                <div className="flex items-center justify-between px-6 py-3 bg-slate-50/80 border-b border-slate-200">
+                  <div className="grid grid-cols-2 gap-6 flex-1">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      Original{project.source_language ? ` (${project.source_language})` : ''}
+                    </p>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      Translation{project.target_language ? ` (${project.target_language})` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-4 shrink-0">
+                    <button
+                      onClick={() => void handleBulkDurationMatch(!transcripts.every((t) => t.duration_match))}
+                      title="Toggle match original duration for all segments"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                    >
+                      <Timer className="w-3.5 h-3.5" />
+                      {transcripts.every((t) => t.duration_match) ? 'Unset all durations' : 'Match all durations'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="divide-y divide-slate-100">
@@ -779,7 +911,7 @@ export default function ProjectPage() {
                                   : 'border-slate-200'
                               }`}
                             />
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <button
                                 onClick={() => handlePlay(transcript.id)}
                                 disabled={!hasAudio}
@@ -811,6 +943,18 @@ export default function ProjectPage() {
                                   <RotateCcw className="w-3.5 h-3.5" />
                                 )}
                                 {isRegenerating ? 'Generating…' : 'Regenerate'}
+                              </button>
+                              <button
+                                onClick={() => void handleDurationMatchToggle(transcript.id, transcript.duration_match)}
+                                title={transcript.duration_match ? 'Disable duration match for this segment' : 'Stretch/compress audio to fit original timing'}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                                  transcript.duration_match
+                                    ? 'bg-slate-700 text-white hover:bg-slate-800'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                              >
+                                <Timer className="w-3.5 h-3.5" />
+                                Match duration
                               </button>
                             </div>
                           </div>

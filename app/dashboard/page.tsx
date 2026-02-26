@@ -1,68 +1,175 @@
 'use client'
 
-import { useUser, useAuth } from '@clerk/nextjs'
+import { useUser } from '@clerk/nextjs'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { getUserFromSupabase, UserData } from '@/lib/user-sync'
-import { User, CreditCard, BarChart3, Settings, Calendar, CheckCircle, Plus } from 'lucide-react'
+import Link from 'next/link'
+import {
+  Plus,
+  CheckCircle,
+  Loader2,
+  AlertCircle,
+  Clock,
+  Mic2,
+  Languages,
+  Volume2,
+  XCircle,
+  Download,
+  FileVideo,
+} from 'lucide-react'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ProjectStatus =
+  | 'uploading'
+  | 'ready'
+  | 'queued'
+  | 'transcribing'
+  | 'translating'
+  | 'generating_audio'
+  | 'completed'
+  | 'delivering'
+  | 'delivered'
+  | 'error'
+
+interface Project {
+  id: string
+  title: string
+  status: ProjectStatus
+  source_language: string | null
+  target_language: string | null
+  video_size_bytes: number | null
+  created_at: string
+  error_message: string | null
+}
+
+interface UserData {
+  subscription_status: string | null
+  plan_name: string | null
+  stripe_customer_id: string | null
+  created_at: string | null
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<ProjectStatus, string> = {
+  uploading: 'Uploading',
+  ready: 'Ready',
+  queued: 'Queued',
+  transcribing: 'Transcribing',
+  translating: 'Translating',
+  generating_audio: 'Generating voices',
+  completed: 'Completed',
+  delivering: 'Mixing audio',
+  delivered: 'Delivered',
+  error: 'Failed',
+}
+
+const STATUS_COLOR: Record<ProjectStatus, string> = {
+  uploading: 'bg-slate-100 text-slate-600',
+  ready: 'bg-slate-100 text-slate-600',
+  queued: 'bg-amber-100 text-amber-700',
+  transcribing: 'bg-blue-100 text-blue-700',
+  translating: 'bg-blue-100 text-blue-700',
+  generating_audio: 'bg-blue-100 text-blue-700',
+  completed: 'bg-green-100 text-green-700',
+  delivering: 'bg-blue-100 text-blue-700',
+  delivered: 'bg-emerald-100 text-emerald-700',
+  error: 'bg-red-100 text-red-700',
+}
+
+function isProcessing(status: ProjectStatus): boolean {
+  return ['queued', 'transcribing', 'translating', 'generating_audio', 'delivering'].includes(status)
+}
+
+function formatBytes(bytes: number | null): string {
+  if (!bytes) return '—'
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const router = useRouter()
   const { user, isLoaded } = useUser()
-  const { getToken } = useAuth()
+
   const [userData, setUserData] = useState<UserData | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
 
-  const fetchUserData = async () => {
-    if (!user) return
-
-    try {
-      // Retrieve Clerk JWT token for Supabase RLS
-      const jwt = await getToken({ template: 'supabase' })
-
-      // Pass JWT token to enable RLS policies
-      const data = await getUserFromSupabase(user.id, jwt || undefined)
-      setUserData(data)
-    } catch (error) {
-      console.error('Error fetching user data:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Fetch user data when user is loaded
-  // Note: Authentication is enforced by middleware, so user will always be present here
   useEffect(() => {
-    if (isLoaded && user) {
-      fetchUserData()
+    if (!isLoaded || !user) return
+
+    const load = async () => {
+      try {
+        const [userRes, projectsRes] = await Promise.all([
+          fetch('/api/me/subscription'),
+          fetch('/api/projects'),
+        ])
+
+        if (userRes.ok) {
+          const data = (await userRes.json()) as UserData
+          setUserData(data)
+        }
+
+        if (projectsRes.ok) {
+          const data = (await projectsRes.json()) as { projects: Project[] }
+          setProjects(data.projects)
+        }
+      } catch {
+        // Non-fatal
+      } finally {
+        setLoading(false)
+      }
     }
+
+    void load()
   }, [isLoaded, user])
 
-  // Refresh data when returning from Stripe checkout
+  // Refresh on return from Stripe checkout
   useEffect(() => {
     if (!user) return
-    
     const urlParams = new URLSearchParams(window.location.search)
     if (urlParams.get('success') === 'true') {
-      // Refresh user data after successful payment
       setTimeout(() => {
-        fetchUserData()
+        void fetch('/api/me/subscription')
+          .then((r) => r.json())
+          .then((data: unknown) => setUserData(data as UserData))
+          .catch(() => undefined)
       }, 2000)
     }
   }, [user])
 
-  // Show loading while Clerk is loading or while fetching user data
-  // Note: Middleware ensures user is authenticated, so we only need to check loading states
   if (!isLoaded || loading || !user) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-slate-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-8 h-8 border-2 border-slate-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-slate-600">Loading dashboard...</p>
         </div>
       </div>
     )
   }
+
+  // Usage stats
+  const now = new Date()
+  const thisMonthProjects = projects.filter((p) => {
+    const created = new Date(p.created_at)
+    return created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth()
+  }).length
+
+  // Plan limits — mirror lib/plan-limits.ts logic (all users default Pro until M6)
+  const maxMonthlyProjects = 10
+
+  const planLabel = userData?.plan_name
+    ? userData.plan_name.charAt(0).toUpperCase() + userData.plan_name.slice(1)
+    : 'Free'
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
@@ -74,158 +181,159 @@ export default function Dashboard() {
               <h1 className="text-3xl font-bold text-slate-700">Dashboard</h1>
               <p className="text-slate-600 mt-1">Welcome back, {user.firstName}!</p>
             </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => router.push('/dashboard/new')}
-                className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                <span>New Project</span>
-              </button>
-              <div className="text-right">
-                <p className="text-sm text-slate-500">Account Status</p>
-                <div className="flex items-center space-x-2">
-                  <CheckCircle className="w-4 h-4 text-green-500" />
-                  <span className="text-sm font-medium text-green-600 capitalize">
-                    {userData?.subscription_status || 'Free'}
-                  </span>
-                </div>
-              </div>
-            </div>
+            <button
+              onClick={() => router.push('/dashboard/new')}
+              className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Project</span>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          
-          {/* Account Info Card */}
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 shadow-lg">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="p-2 bg-slate-100 rounded-lg">
-                <User className="w-5 h-5 text-slate-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-slate-700">Account Info</h3>
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+        {/* Stats row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Plan */}
+          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <p className="text-sm text-slate-500 mb-1">Current Plan</p>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+              <span className="text-lg font-semibold text-slate-700">{planLabel}</span>
+              <span className="text-xs text-slate-400 capitalize">
+                {userData?.subscription_status ?? 'free'}
+              </span>
             </div>
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-slate-500">Email</p>
-                <p className="text-slate-700">{user.emailAddresses[0]?.emailAddress}</p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-500">Member Since</p>
-                <p className="text-slate-700">
-                  {userData?.created_at ? new Date(userData.created_at).toLocaleDateString() : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-500">Plan</p>
-                <p className="text-slate-700 capitalize">{userData?.plan_name || 'Free'}</p>
-              </div>
+            <button
+              onClick={async () => {
+                if (!userData?.stripe_customer_id) {
+                  alert('No Stripe customer found. Please contact support.')
+                  return
+                }
+                try {
+                  const res = await fetch('/api/stripe/portal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userData }),
+                  })
+                  const result = (await res.json()) as { url?: string }
+                  if (result.url) window.location.href = result.url
+                  else alert('Failed to open billing portal. Please try again.')
+                } catch {
+                  alert('Error opening billing portal. Please try again.')
+                }
+              }}
+              className="mt-4 text-xs text-slate-500 underline hover:text-slate-700 transition-colors"
+            >
+              Manage subscription
+            </button>
+          </div>
+
+          {/* Projects this month */}
+          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <p className="text-sm text-slate-500 mb-1">Projects this month</p>
+            <p className="text-3xl font-bold text-slate-700">
+              {thisMonthProjects}
+              <span className="text-base font-normal text-slate-400 ml-1">/ {maxMonthlyProjects}</span>
+            </p>
+            <div className="mt-3 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-slate-600 transition-all"
+                style={{ width: `${Math.min(100, (thisMonthProjects / maxMonthlyProjects) * 100)}%` }}
+              />
             </div>
           </div>
 
-          {/* Subscription Card */}
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 shadow-lg">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="p-2 bg-slate-100 rounded-lg">
-                <CreditCard className="w-5 h-5 text-slate-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-slate-700">Subscription</h3>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-slate-500">Status</p>
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    userData?.subscription_status === 'active' ? 'bg-green-500' : 'bg-slate-400'
-                  }`}></div>
-                  <p className="text-slate-700 capitalize">{userData?.subscription_status || 'Free'}</p>
-                </div>
-              </div>
-              <div>
-                <p className="text-sm text-slate-500">Current Plan</p>
-                <p className="text-slate-700 capitalize">{userData?.plan_name || 'Free'}</p>
-              </div>
-              <button 
-                onClick={async () => {
-                  if (!userData?.stripe_customer_id) {
-                    alert('No Stripe customer found. Please contact support.');
-                    return;
-                  }
-                  
-                  try {
-                    const response = await fetch('/api/stripe/portal', {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({ userData }),
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.url) {
-                      window.location.href = result.url;
-                    } else {
-                      console.error('No URL in response:', result);
-                      alert('Failed to open billing portal. Please try again.');
-                    }
-                  } catch (error) {
-                    console.error('Error opening billing portal:', error);
-                    alert('Error opening billing portal. Please try again.');
-                  }
-                }}
-                className="w-full mt-4 py-2 px-4 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors"
-              >
-                Manage Subscription
-              </button>
-            </div>
+          {/* Total projects */}
+          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <p className="text-sm text-slate-500 mb-1">Total projects</p>
+            <p className="text-3xl font-bold text-slate-700">{projects.length}</p>
+            <p className="text-xs text-slate-400 mt-1">all time</p>
           </div>
-
-          {/* Usage Stats Card */}
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 shadow-lg">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="p-2 bg-slate-100 rounded-lg">
-                <BarChart3 className="w-5 h-5 text-slate-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-slate-700">Usage Stats</h3>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-slate-500">Videos Processed</p>
-                <p className="text-2xl font-bold text-slate-700">Unlimited</p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-500">Total Duration</p>
-                <p className="text-2xl font-bold text-slate-700">Unlimited</p>
-              </div>
-              <button className="w-full mt-4 py-2 px-4 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors">
-                View Details
-              </button>
-            </div>
-          </div>
-
         </div>
 
-        {/* Quick Actions */}
-        <div className="mt-8">
-          <h2 className="text-xl font-semibold text-slate-700 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button className="flex items-center space-x-3 p-4 bg-white/70 backdrop-blur-sm rounded-xl border border-slate-200 hover:bg-white/90 transition-colors">
-              <Settings className="w-5 h-5 text-slate-600" />
-              <span className="text-slate-700">Account Settings</span>
-            </button>
-            <button className="flex items-center space-x-3 p-4 bg-white/70 backdrop-blur-sm rounded-xl border border-slate-200 hover:bg-white/90 transition-colors">
-              <CreditCard className="w-5 h-5 text-slate-600" />
-              <span className="text-slate-700">Billing History</span>
-            </button>
-            <button className="flex items-center space-x-3 p-4 bg-white/70 backdrop-blur-sm rounded-xl border border-slate-200 hover:bg-white/90 transition-colors">
-              <Calendar className="w-5 h-5 text-slate-600" />
-              <span className="text-slate-700">Usage History</span>
-            </button>
-          </div>
+        {/* Project list */}
+        <div>
+          <h2 className="text-xl font-semibold text-slate-700 mb-4">Projects</h2>
+
+          {projects.length === 0 ? (
+            <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+              <FileVideo className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <p className="text-slate-500 mb-4">No projects yet. Upload a video to get started.</p>
+              <button
+                onClick={() => router.push('/dashboard/new')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                New Project
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="divide-y divide-slate-100">
+                {projects.map((project) => (
+                  <Link
+                    key={project.id}
+                    href={`/project/${project.id}`}
+                    className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 transition-colors group"
+                  >
+                    {/* Status icon */}
+                    <div className="shrink-0">
+                      {project.status === 'error' ? (
+                        <XCircle className="w-5 h-5 text-red-400" />
+                      ) : project.status === 'delivered' ? (
+                        <Download className="w-5 h-5 text-emerald-500" />
+                      ) : project.status === 'completed' ? (
+                        <CheckCircle className="w-5 h-5 text-green-500" />
+                      ) : isProcessing(project.status) ? (
+                        <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                      ) : (
+                        <Clock className="w-5 h-5 text-slate-300" />
+                      )}
+                    </div>
+
+                    {/* Title + meta */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-700 truncate group-hover:text-slate-900 transition-colors">
+                        {project.title}
+                      </p>
+                      <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-400">
+                        {project.source_language && project.target_language && (
+                          <span className="flex items-center gap-1">
+                            <Languages className="w-3 h-3" />
+                            {project.source_language} → {project.target_language}
+                          </span>
+                        )}
+                        {project.video_size_bytes && (
+                          <span className="flex items-center gap-1">
+                            <FileVideo className="w-3 h-3" />
+                            {formatBytes(project.video_size_bytes)}
+                          </span>
+                        )}
+                        <span>{formatDate(project.created_at)}</span>
+                      </div>
+                      {project.status === 'error' && project.error_message && (
+                        <p className="text-xs text-red-500 mt-0.5 truncate">{project.error_message}</p>
+                      )}
+                    </div>
+
+                    {/* Status badge */}
+                    <div className="shrink-0">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_COLOR[project.status]}`}
+                      >
+                        {isProcessing(project.status) && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                        )}
+                        {STATUS_LABEL[project.status]}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

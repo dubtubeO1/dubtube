@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
-const PATCHABLE_FIELDS = new Set(['original_text', 'translated_text'])
+const PATCHABLE_FIELDS = new Set(['original_text', 'translated_text', 'duration_match'])
 
 export async function PATCH(
   req: NextRequest,
