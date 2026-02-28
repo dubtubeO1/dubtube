@@ -8,14 +8,13 @@ import {
   Plus,
   CheckCircle,
   Loader2,
-  AlertCircle,
   Clock,
-  Mic2,
   Languages,
-  Volume2,
   XCircle,
   Download,
   FileVideo,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -102,6 +101,8 @@ export default function Dashboard() {
   const [userData, setUserData] = useState<UserData | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isLoaded || !user) return
@@ -171,8 +172,57 @@ export default function Dashboard() {
     ? userData.plan_name.charAt(0).toUpperCase() + userData.plan_name.slice(1)
     : 'Free'
 
+  const confirmDeleteProject = projects.find((p) => p.id === confirmDeleteId) ?? null
+
+  const handleDeleteConfirm = async () => {
+    if (!confirmDeleteId) return
+    setDeleteLoadingId(confirmDeleteId)
+    setConfirmDeleteId(null)
+    try {
+      await fetch(`/api/projects/${confirmDeleteId}`, { method: 'DELETE' })
+      setProjects((prev) => prev.filter((p) => p.id !== confirmDeleteId))
+    } catch {
+      // Silent — project will still appear until next refresh
+    } finally {
+      setDeleteLoadingId(null)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+      {/* ── Delete confirmation modal ── */}
+      {confirmDeleteProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-w-sm w-full space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 w-9 h-9 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-slate-800">Delete project?</p>
+                <p className="text-sm text-slate-500 mt-1">
+                  <span className="font-medium text-slate-700">{confirmDeleteProject.title}</span> will
+                  be permanently deleted — including all files and transcript data. This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-1">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleDeleteConfirm()}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="bg-white/50 backdrop-blur-sm border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 py-6">
@@ -276,7 +326,7 @@ export default function Dashboard() {
                   <Link
                     key={project.id}
                     href={`/project/${project.id}`}
-                    className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 transition-colors group"
+                    className="relative flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 transition-colors group"
                   >
                     {/* Status icon */}
                     <div className="shrink-0">
@@ -329,6 +379,24 @@ export default function Dashboard() {
                         {STATUS_LABEL[project.status]}
                       </span>
                     </div>
+
+                    {/* Delete button — sits inside Link but stops propagation */}
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (deleteLoadingId === project.id) return
+                        setConfirmDeleteId(project.id)
+                      }}
+                      title="Delete project"
+                      className="shrink-0 p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      {deleteLoadingId === project.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
                   </Link>
                 ))}
               </div>
