@@ -7,22 +7,22 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
-    
+
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { planType } = await request.json();
-    
-    if (!planType || !PLAN_CONFIGS[planType as keyof typeof PLAN_CONFIGS]) {
+    const { planType } = await request.json() as { planType: string };
+
+    if (!planType || !(planType in PLAN_CONFIGS)) {
       return NextResponse.json({ error: 'Invalid plan type' }, { status: 400 });
     }
 
     const plan = PLAN_CONFIGS[planType as keyof typeof PLAN_CONFIGS];
-    
-    // Validate Price ID exists
+
+    // Validate Price ID exists at request time (not module load time)
     if (!plan.priceId) {
-      console.error(`Missing Price ID for plan: ${planType}`);
+      console.error(`[Checkout] Missing Price ID for plan: ${planType}`);
       return NextResponse.json(
         { error: 'Subscription plan not configured' },
         { status: 500 }
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure user exists in Supabase (required for guard and for stripe_customer_id reuse)
+    // Ensure user exists in Supabase
     await syncUserToSupabase(user);
 
     if (!supabaseAdmin) {
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Look up the Supabase user; if missing, retry sync once (handles Clerk webhook race)
+    // Look up the Supabase user; retry once if missing (Clerk webhook race)
     let { data: userRow, error: userError } = await supabaseAdmin
       .from('users')
       .select('id, subscription_status, stripe_customer_id')
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (userError || !userRow) {
-      console.warn('[Checkout] User not found after sync, retrying sync once')
+      console.warn('[Checkout] User not found after sync, retrying sync once');
       await syncUserToSupabase(user);
       const retry = await supabaseAdmin
         .from('users')
@@ -69,17 +69,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (userError || !userRow) {
-      console.error('[Checkout] User not found in billing system after sync')
+      console.error('[Checkout] User not found in billing system after sync');
       return NextResponse.json(
         { error: 'Account not ready for checkout. Please try again in a moment or contact support.' },
         { status: 400 }
       );
     }
 
-    // ---------------------------------------------------------------------
-    // Guard: block only when user has an ACTIVE or TRIALING subscription.
-    // New users (no subscription row, or status free/canceled) must NOT be blocked.
-    // ---------------------------------------------------------------------
+    // Guard: block only when user has an ACTIVE or TRIALING subscription
     const { data: subscriptionRow } = await supabaseAdmin
       .from('subscriptions')
       .select('status')
@@ -90,12 +87,10 @@ export async function POST(request: NextRequest) {
 
     let hasActiveSubscription = false;
 
-    // Block only when subscription row has status active or trialing
     if (subscriptionRow && (subscriptionRow.status === 'active' || subscriptionRow.status === 'trialing')) {
       hasActiveSubscription = true;
     }
 
-    // Fallback: if no subscription row, do NOT block (new user). Only trust users table when no row.
     if (
       !hasActiveSubscription &&
       subscriptionRow == null &&
@@ -105,9 +100,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (hasActiveSubscription) {
-      console.log('[Checkout] Guard: blocked – user already has active subscription', {
-        subscription_status: subscriptionRow?.status ?? userRow.subscription_status,
-      })
+      console.log('[Checkout] Guard: blocked – user already has active subscription');
       return NextResponse.json(
         {
           error: 'User already has an active subscription',
@@ -118,26 +111,20 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[Checkout] Guard: allowed – creating session', {
+      plan: planType,
       has_stripe_customer_id: !!userRow.stripe_customer_id,
-    })
+    });
 
     const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://dubtube.net';
-    const existingStripeCustomerId = userRow.stripe_customer_id || null;
+    const existingStripeCustomerId = userRow.stripe_customer_id ?? null;
     const email = user.emailAddresses[0]?.emailAddress ?? undefined;
 
-    // In subscription mode Stripe does NOT allow customer_creation. Use either:
-    // - customer (existing) to reuse, or
-    // - customer_email (new) and Stripe creates the customer.
-    if (existingStripeCustomerId) {
-      // Reuse existing Stripe customer (re-subscribe, one Clerk user → one Stripe customer)
-    } else {
-      if (!email) {
-        console.error('[Checkout] Email required for new customer')
-        return NextResponse.json(
-          { error: 'Email is required to start checkout.' },
-          { status: 400 }
-        );
-      }
+    if (!existingStripeCustomerId && !email) {
+      console.error('[Checkout] Email required for new customer');
+      return NextResponse.json(
+        { error: 'Email is required to start checkout.' },
+        { status: 400 }
+      );
     }
 
     const sessionParams: {
@@ -147,8 +134,8 @@ export async function POST(request: NextRequest) {
       success_url: string;
       cancel_url: string;
       allow_promotion_codes: boolean;
-      metadata: { clerk_user_id: string; plan_type: string; plan_name: string };
-      subscription_data: { metadata: { clerk_user_id: string; plan_type: string; plan_name: string } };
+      metadata: { clerk_user_id: string; plan_type: string; plan_name: string; tier: string };
+      subscription_data: { metadata: { clerk_user_id: string; plan_type: string; plan_name: string; tier: string } };
       customer?: string;
       customer_email?: string;
     } = {
@@ -162,12 +149,14 @@ export async function POST(request: NextRequest) {
         clerk_user_id: userId,
         plan_type: planType,
         plan_name: plan.name,
+        tier: plan.tier,
       },
       subscription_data: {
         metadata: {
           clerk_user_id: userId,
           plan_type: planType,
           plan_name: plan.name,
+          tier: plan.tier,
         },
       },
     };
@@ -180,10 +169,10 @@ export async function POST(request: NextRequest) {
 
     const session = await stripe.checkout.sessions.create(sessionParams);
 
-    console.log('[Checkout] Session created')
+    console.log('[Checkout] Session created');
     return NextResponse.json({ sessionId: session.id });
   } catch (error) {
-    console.error('[Checkout] Error creating checkout session')
+    console.error('[Checkout] Error creating checkout session', error);
     return NextResponse.json(
       { error: 'Failed to create checkout session' },
       { status: 500 }

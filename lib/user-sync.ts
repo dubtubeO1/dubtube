@@ -160,9 +160,9 @@ export async function upsertSubscription(
     status: string
     cancel_at_period_end: boolean
     plan_name: string | null
+    subscription_ended_at?: string | null
   }
 ): Promise<boolean> {
-  console.log('💾 upsertSubscription called');
   try {
     if (!supabaseAdmin) {
       console.error('Supabase admin client not initialized')
@@ -209,14 +209,16 @@ export async function upsertSubscription(
           status: subscriptionStatus,
           plan_name: subscriptionData.plan_name || null,
           cancel_at_period_end: subscriptionData.cancel_at_period_end,
+          ...(subscriptionData.subscription_ended_at !== undefined
+            ? { subscription_ended_at: subscriptionData.subscription_ended_at }
+            : {}),
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id' }
       )
 
-    console.log('✅ Supabase subscription upsert attempted')
     if (subError) {
-      console.error('❌ Supabase subscription upsert error')
+      console.error('[upsertSubscription] Supabase subscription upsert error')
       return false
     }
 

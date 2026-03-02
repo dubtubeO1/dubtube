@@ -165,11 +165,17 @@ export default function Dashboard() {
     return created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth()
   }).length
 
-  // Plan limits — mirror lib/plan-limits.ts logic (all users default Pro until M6)
-  const maxMonthlyProjects = 10
+  // Plan limits — mirrors lib/plan-limits.ts PLAN_LIMITS
+  const MONTHLY_LIMITS: Record<string, number> = {
+    starter: 3,
+    pro: 10,
+    business: Infinity,
+  }
+  const planName = userData?.plan_name ?? null
+  const maxMonthlyProjects = planName && planName in MONTHLY_LIMITS ? MONTHLY_LIMITS[planName] : 10
 
-  const planLabel = userData?.plan_name
-    ? userData.plan_name.charAt(0).toUpperCase() + userData.plan_name.slice(1)
+  const planLabel = planName
+    ? planName.charAt(0).toUpperCase() + planName.slice(1)
     : 'Free'
 
   const confirmDeleteProject = projects.find((p) => p.id === confirmDeleteId) ?? null
@@ -285,12 +291,18 @@ export default function Dashboard() {
             <p className="text-sm text-slate-500 mb-1">Projects this month</p>
             <p className="text-3xl font-bold text-slate-700">
               {thisMonthProjects}
-              <span className="text-base font-normal text-slate-400 ml-1">/ {maxMonthlyProjects}</span>
+              <span className="text-base font-normal text-slate-400 ml-1">
+                {maxMonthlyProjects === Infinity ? '/ unlimited' : `/ ${maxMonthlyProjects}`}
+              </span>
             </p>
             <div className="mt-3 h-1.5 rounded-full bg-slate-100 overflow-hidden">
               <div
                 className="h-full rounded-full bg-slate-600 transition-all"
-                style={{ width: `${Math.min(100, (thisMonthProjects / maxMonthlyProjects) * 100)}%` }}
+                style={{
+                  width: maxMonthlyProjects === Infinity
+                    ? '0%'
+                    : `${Math.min(100, (thisMonthProjects / maxMonthlyProjects) * 100)}%`,
+                }}
               />
             </div>
           </div>

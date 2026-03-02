@@ -1,6 +1,4 @@
 // Plan tier limits for the v2 dubbing feature.
-// TODO Milestone 6: Update resolvePlanTier() when new Stripe products
-// (Starter / Pro / Business) are created and their product IDs are known.
 
 export type PlanTier = 'starter' | 'pro' | 'business'
 
@@ -27,15 +25,28 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
 /**
  * Resolve the plan tier from subscription data.
  *
- * Current v1 plan_name values are billing periods ('monthly', 'quarterly', 'annual'),
- * not tiers. Until Milestone 6 restructures Stripe plans into Starter / Pro / Business,
- * any active subscription defaults to 'pro'.
+ * Checks stripe_product_id against env vars first (authoritative), then falls
+ * back to plan_name string for older or manually-set rows.
+ * Env vars are read inside the function to avoid module-level evaluation
+ * at build time (Next.js evaluates route modules before Railway injects vars).
  */
 export function resolvePlanTier(
-  _planName: string | null,
-  _stripeProductId: string | null,
+  planName: string | null,
+  stripeProductId: string | null,
 ): PlanTier {
-  // TODO Milestone 6: map new stripe_product_id values to correct tiers
+  // Primary: map by Stripe product_id
+  if (stripeProductId) {
+    if (stripeProductId === process.env.STRIPE_PRODUCT_STARTER) return 'starter'
+    if (stripeProductId === process.env.STRIPE_PRODUCT_PRO) return 'pro'
+    if (stripeProductId === process.env.STRIPE_PRODUCT_BUSINESS) return 'business'
+  }
+
+  // Fallback: plan_name string (set by webhook from new products)
+  if (planName === 'starter') return 'starter'
+  if (planName === 'pro') return 'pro'
+  if (planName === 'business') return 'business'
+
+  // Default: any active subscription without tier data falls back to pro
   return 'pro'
 }
 
