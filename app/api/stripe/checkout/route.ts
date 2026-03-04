@@ -94,10 +94,12 @@ export async function POST(request: NextRequest) {
     if (
       !hasActiveSubscription &&
       subscriptionRow == null &&
-      (userRow.subscription_status === 'active' || userRow.subscription_status === 'legacy')
+      userRow.subscription_status === 'active'
     ) {
       hasActiveSubscription = true;
     }
+    // Legacy users are always allowed to purchase — buying a plan naturally
+    // overwrites their legacy status via the webhook.
 
     if (hasActiveSubscription) {
       console.log('[Checkout] Guard: blocked – user already has active subscription');

@@ -79,11 +79,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .limit(1)
       .maybeSingle()
 
+    const isLegacy = userRow.subscription_status === 'legacy'
+
     const hasActiveSubscription =
+      isLegacy ||
       subscriptionRow?.status === 'active' ||
       subscriptionRow?.status === 'trialing' ||
-      (!subscriptionRow &&
-        (userRow.subscription_status === 'active' || userRow.subscription_status === 'legacy'))
+      (!subscriptionRow && userRow.subscription_status === 'active')
 
     if (!hasActiveSubscription) {
       return NextResponse.json(
@@ -92,11 +94,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       )
     }
 
-    // Resolve plan limits
-    const tier = resolvePlanTier(
-      subscriptionRow?.plan_name ?? userRow.plan_name,
-      (subscriptionRow as { stripe_product_id?: string | null } | null)?.stripe_product_id ?? null,
-    )
+    // Legacy users always get Business-tier limits (max capacity)
+    const tier = isLegacy
+      ? 'business'
+      : resolvePlanTier(
+          subscriptionRow?.plan_name ?? userRow.plan_name,
+          (subscriptionRow as { stripe_product_id?: string | null } | null)?.stripe_product_id ?? null,
+        )
     const limits = getPlanLimits(tier)
 
     // Validate file size
