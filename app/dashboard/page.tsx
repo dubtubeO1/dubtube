@@ -261,29 +261,34 @@ export default function Dashboard() {
                 {userData?.subscription_status ?? 'free'}
               </span>
             </div>
-            <button
-              onClick={async () => {
-                if (!userData?.stripe_customer_id) {
-                  alert('No Stripe customer found. Please contact support.')
-                  return
-                }
-                try {
-                  const res = await fetch('/api/stripe/portal', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userData }),
-                  })
-                  const result = (await res.json()) as { url?: string }
-                  if (result.url) window.location.href = result.url
-                  else alert('Failed to open billing portal. Please try again.')
-                } catch {
-                  alert('Error opening billing portal. Please try again.')
-                }
-              }}
-              className="mt-4 text-xs text-slate-500 underline hover:text-slate-700 transition-colors"
-            >
-              Manage subscription
-            </button>
+            {userData?.stripe_customer_id ? (
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/stripe/portal', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ userData }),
+                    })
+                    const result = (await res.json()) as { url?: string }
+                    if (result.url) window.location.href = result.url
+                    else alert('Failed to open billing portal. Please try again.')
+                  } catch {
+                    alert('Error opening billing portal. Please try again.')
+                  }
+                }}
+                className="mt-4 text-xs text-slate-500 underline hover:text-slate-700 transition-colors"
+              >
+                Manage subscription
+              </button>
+            ) : (
+              <Link
+                href="/pricing"
+                className="mt-4 inline-block text-xs text-slate-500 underline hover:text-slate-700 transition-colors"
+              >
+                Upgrade to a plan
+              </Link>
+            )}
           </div>
 
           {/* Projects this month */}
