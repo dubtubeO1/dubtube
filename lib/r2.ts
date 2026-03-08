@@ -45,11 +45,18 @@ export async function getPresignedUploadUrl(
 
 /**
  * Generate a presigned GET URL for reading a private file.
+ * Pass `contentDisposition` (e.g. `'attachment; filename="file.mp3"'`) to force
+ * the browser to download rather than play/display the file inline.
  */
-export async function getPresignedReadUrl(key: string, expiresIn = 3600): Promise<string> {
+export async function getPresignedReadUrl(
+  key: string,
+  expiresIn = 3600,
+  contentDisposition?: string,
+): Promise<string> {
   const command = new GetObjectCommand({
     Bucket: bucketName,
     Key: key,
+    ...(contentDisposition ? { ResponseContentDisposition: contentDisposition } : {}),
   })
   return getSignedUrl(r2, command, { expiresIn })
 }

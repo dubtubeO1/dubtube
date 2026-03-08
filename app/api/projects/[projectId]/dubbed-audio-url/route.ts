@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getPresignedReadUrl } from '@/lib/r2'
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ): Promise<NextResponse> {
   try {
@@ -16,6 +16,7 @@ export async function GET(
     }
 
     const { projectId } = await params
+    const isDownload = req.nextUrl.searchParams.get('download') === '1'
 
     // Verify ownership
     const { data: userRow } = await supabaseAdmin
@@ -43,8 +44,11 @@ export async function GET(
       return NextResponse.json({ error: 'Dubbed audio not yet available' }, { status: 404 })
     }
 
-    // 1-hour presigned URL for download
-    const url = await getPresignedReadUrl(r2Key, 3600)
+    // 1-hour presigned URL; when ?download=1, force attachment disposition
+    const contentDisposition = isDownload
+      ? `attachment; filename="dubbed_audio.mp3"`
+      : undefined
+    const url = await getPresignedReadUrl(r2Key, 3600, contentDisposition)
 
     return NextResponse.json({ url })
   } catch (err) {

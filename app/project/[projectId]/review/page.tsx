@@ -180,7 +180,7 @@ export default function ReviewPage() {
   // ── UI state ──
   const [remixing, setRemixing] = useState(false)
   const [playingSegmentId, setPlayingSegmentId] = useState<string | null>(null)
-  const [syncEnabled, setSyncEnabled] = useState(false)
+  const [syncEnabled, setSyncEnabled] = useState(true)
   const [downloading, setDownloading] = useState(false)
 
   // ── Refs ──
@@ -401,21 +401,22 @@ export default function ReviewPage() {
   // ─── Download ─────────────────────────────────────────────────────────────
 
   const handleDownload = useCallback(async () => {
-    if (!dubbedAudioUrl) return
     setDownloading(true)
     try {
-      const res = await fetch(dubbedAudioUrl)
-      const blob = await res.blob()
-      const objectUrl = URL.createObjectURL(blob)
+      // Fetch a presigned URL with ResponseContentDisposition=attachment so the
+      // browser downloads the file instead of playing it inline.
+      const res = await fetch(`/api/projects/${projectId}/dubbed-audio-url?download=1`)
+      if (!res.ok) return
+      const { url } = (await res.json()) as { url: string }
       const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = `${project?.title ?? 'dubbed_audio'}.mp3`
+      a.href = url
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(objectUrl)
+      document.body.removeChild(a)
     } catch { /* silent fail */ } finally {
       setDownloading(false)
     }
-  }, [dubbedAudioUrl, project?.title])
+  }, [projectId])
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -575,6 +576,7 @@ export default function ReviewPage() {
                   controls
                   preload="metadata"
                   playsInline
+                  muted
                   className="w-full max-h-80 bg-black"
                 />
               )}
