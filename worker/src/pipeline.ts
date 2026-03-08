@@ -6,7 +6,7 @@ import { downloadFromR2 } from './lib/r2'
 import { transcribeVideo } from './steps/transcribe'
 import { translateSegments } from './steps/translate'
 import { generateSegmentAudio } from './steps/tts'
-import { mixDubbedAudio } from './steps/mix-audio'
+import { mixDubbedAudio, concatDubbedAudio } from './steps/mix-audio'
 
 type ProjectStatus =
   | 'uploading'
@@ -207,6 +207,80 @@ export async function runPipeline(projectId: string): Promise<void> {
   } finally {
     if (videoPath && fs.existsSync(videoPath)) {
       try { fs.unlinkSync(videoPath) } catch { /* ignore */ }
+    }
+  }
+}
+
+// ── Remix pipeline (reorder segments, sequential concatenation) ───────────────
+
+export async function runRemix(projectId: string, segmentOrder: string[]): Promise<void> {
+  const supabase = getSupabaseAdmin()
+
+  try {
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('id, video_r2_key')
+      .eq('id', projectId)
+      .single()
+
+    if (projectError || !project) throw new Error('Project not found')
+
+    const { video_r2_key } = project as { video_r2_key: string | null }
+    if (!video_r2_key) throw new Error('Project has no video_r2_key')
+
+    const clerkUserId = video_r2_key.split('/')[0]
+    if (!clerkUserId) throw new Error('Could not derive clerkUserId from video_r2_key')
+
+    // Fetch only the requested transcripts
+    const { data: transcripts, error: transcriptsError } = await supabase
+      .from('transcripts')
+      .select('id, segment_audio_r2_key')
+      .in('id', segmentOrder)
+      .eq('project_id', projectId)
+
+    if (transcriptsError || !transcripts) throw new Error('Failed to fetch transcripts')
+
+    // Build a map so we can reorder by the user-specified sequence
+    const transcriptMap = new Map(
+      (transcripts as Array<{ id: string; segment_audio_r2_key: string | null }>).map((t) => [
+        t.id,
+        t,
+      ]),
+    )
+
+    const orderedSegments = segmentOrder
+      .map((id) => transcriptMap.get(id))
+      .filter(
+        (s): s is { id: string; segment_audio_r2_key: string } =>
+          s != null && typeof s.segment_audio_r2_key === 'string',
+      )
+
+    if (orderedSegments.length === 0) throw new Error('No segments with audio found')
+
+    console.log(`[${projectId}] Remixing ${orderedSegments.length} segment(s) in custom order...`)
+
+    const dubbedR2Key = await concatDubbedAudio(orderedSegments, projectId, clerkUserId)
+
+    await supabase
+      .from('projects')
+      .update({
+        status: 'delivered',
+        dubbed_audio_r2_key: dubbedR2Key,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', projectId)
+
+    console.log(`[${projectId}] Remix complete — r2Key: ${dubbedR2Key}`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[${projectId}] Remix failed:`, message)
+    try {
+      await supabase
+        .from('projects')
+        .update({ status: 'error', error_message: message, updated_at: new Date().toISOString() })
+        .eq('id', projectId)
+    } catch (updateErr) {
+      console.error(`[${projectId}] Failed to write error status:`, updateErr)
     }
   }
 }

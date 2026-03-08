@@ -151,6 +151,61 @@ export async function mixDubbedAudio(
 }
 
 /**
+ * Concatenate dubbed segment audio files sequentially in the given order.
+ * Unlike mixDubbedAudio (which positions clips at their original timestamps),
+ * this produces a linear audio track with no gaps.
+ */
+export async function concatDubbedAudio(
+  segments: { segment_audio_r2_key: string }[],
+  projectId: string,
+  clerkUserId: string,
+): Promise<string> {
+  const workDir = path.join(os.tmpdir(), `concat_${projectId}`)
+  fs.mkdirSync(workDir, { recursive: true })
+
+  try {
+    // Download all segment files in order
+    const segmentFiles: string[] = []
+    await Promise.all(
+      segments.map(async (seg, i) => {
+        const localPath = path.join(workDir, `seg_${i}.mp3`)
+        const buf = await downloadFromR2(seg.segment_audio_r2_key)
+        fs.writeFileSync(localPath, buf)
+        segmentFiles[i] = localPath
+      }),
+    )
+
+    const validFiles = segmentFiles.filter(Boolean)
+    if (validFiles.length === 0) throw new Error('No valid segment files to concatenate')
+
+    const outputPath = path.join(workDir, 'remixed.mp3')
+
+    if (validFiles.length === 1) {
+      // Single file — just re-encode it
+      await execAsync(`ffmpeg -y -i "${validFiles[0]}" -c:a libmp3lame -b:a 128k "${outputPath}"`)
+    } else {
+      // Write concat list and use ffmpeg concat demuxer
+      const concatListPath = path.join(workDir, 'concat.txt')
+      const concatList = validFiles.map((f) => `file '${f}'`).join('\n')
+      fs.writeFileSync(concatListPath, concatList)
+      await execAsync(
+        `ffmpeg -y -f concat -safe 0 -i "${concatListPath}" -c:a libmp3lame -b:a 128k "${outputPath}"`,
+      )
+    }
+
+    const r2Key = `${clerkUserId}/${projectId}/dubbed/dubbed_audio.mp3`
+    const outputBuf = fs.readFileSync(outputPath)
+    await uploadToR2(r2Key, outputBuf, 'audio/mpeg')
+
+    return r2Key
+  } finally {
+    try {
+      fs.rmSync(workDir, { recursive: true, force: true })
+    } catch { /* ignore */ }
+  }
+}
+
+/**
  * Build a chain of atempo filters to achieve a target ratio.
  * atempo only accepts [0.5, 100.0]; chain filters for extreme values.
  */

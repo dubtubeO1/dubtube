@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   Pencil,
   Download,
   Timer,
+  ExternalLink,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -119,6 +120,7 @@ function formatTime(seconds: number | null): string {
 
 export default function ProjectPage() {
   const params = useParams()
+  const router = useRouter()
   const projectId = params.projectId as string
 
   // ── Data state ──
@@ -144,7 +146,6 @@ export default function ProjectPage() {
   const [retranslating, setRetranslating] = useState<Set<string>>(new Set())
   const [playingId, setPlayingId] = useState<string | null>(null)
   const [delivering, setDelivering] = useState(false)
-  const [dubbedAudioUrl, setDubbedAudioUrl] = useState<string | null>(null)
 
   // ── Refs ──
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -421,34 +422,17 @@ export default function ProjectPage() {
     setDelivering(true)
     try {
       const res = await fetch(`/api/projects/${projectId}/deliver`, { method: 'POST' })
-      if (!res.ok) {
+      if (res.ok) {
+        router.push(`/project/${projectId}/review`)
+      } else {
         console.error('Failed to start delivery')
+        setDelivering(false)
       }
-      // Status will update via polling; just let it proceed
     } catch {
       console.error('Deliver request failed')
-    } finally {
       setDelivering(false)
     }
-  }, [projectId])
-
-  const fetchDubbedAudioUrl = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}/dubbed-audio-url`)
-      if (!res.ok) return
-      const data = (await res.json()) as { url: string }
-      setDubbedAudioUrl(data.url)
-    } catch {
-      // Non-fatal
-    }
-  }, [projectId])
-
-  // Fetch dubbed audio URL once project reaches delivered status
-  useEffect(() => {
-    if (project?.status === 'delivered' && !dubbedAudioUrl) {
-      void fetchDubbedAudioUrl()
-    }
-  }, [project?.status, dubbedAudioUrl, fetchDubbedAudioUrl])
+  }, [projectId, router])
 
   // ── Duration match toggle ─────────────────────────────────────────────────
 
@@ -708,23 +692,22 @@ export default function ProjectPage() {
                   <Save className="w-3.5 h-3.5" />
                   Save
                 </button>
-                {project.status === 'delivered' && dubbedAudioUrl ? (
-                  <a
-                    href={dubbedAudioUrl}
-                    download="dubbed_audio.mp3"
+                {project.status === 'delivered' ? (
+                  <Link
+                    href={`/project/${projectId}/review`}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    Download Dubbed Audio
-                  </a>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    View Dubbed Audio
+                  </Link>
                 ) : project.status === 'delivering' ? (
-                  <button
-                    disabled
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 text-slate-400 text-sm font-medium cursor-not-allowed border border-slate-200"
+                  <Link
+                    href={`/project/${projectId}/review`}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-sm font-medium hover:bg-slate-200 transition-colors border border-slate-200"
                   >
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     Mixing audio…
-                  </button>
+                  </Link>
                 ) : (
                   <button
                     onClick={() => void handleDeliver()}
