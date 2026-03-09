@@ -1,6 +1,6 @@
 # Dubtube — Product Requirements Document (PRD)
-**Version:** 2.0 (Creator Edition)
-**Last Updated:** February 2026
+**Version:** 2.1 (Post-MVP Roadmap)
+**Last Updated:** March 2026
 **Status:** Active Development
 
 ---
@@ -37,13 +37,18 @@ Dubtube is a SaaS application that enables users to create AI-powered dubbed ver
 
 ## 3. Current State
 
-The following features are fully functional and will be preserved in this version:
+The following features are fully functional:
 
 - Clerk Auth: Email and Google sign-up/login
 - Supabase DB: User and subscription data
 - Stripe: Payment processing and subscription management
 - Cloudflare: Bot/crawler protection
 - Dubbing pipeline (transcription → translation → TTS → merge): Fully functional
+- Cloudflare R2: Video and audio file storage
+- Project management: Create, view, delete projects
+- Transcript editor: Side-by-side original and translated transcript editing
+- Per-segment audio playback and regeneration
+- Review page: Video + dubbed audio sync player, audio timeline with drag-to-reorder, download button
 
 **The only broken piece:** YouTube video fetching via yt-dlp due to the SABR format change.
 
@@ -92,7 +97,7 @@ The following features are fully functional and will be preserved in this versio
 
 ---
 
-## 5. New Supabase Tables (v2)
+## 5. Supabase Tables
 
 ### `projects`
 | Column | Type | Description |
@@ -100,13 +105,13 @@ The following features are fully functional and will be preserved in this versio
 | id | uuid (PK) | |
 | user_id | uuid (FK → users) | |
 | title | text | Project name (auto-populated from video filename) |
-| status | text | uploading, transcribing, transcribed, translating, translated, generating_audio, completed, error |
+| status | text | uploading, ready, queued, transcribing, translating, generating_audio, completed, delivering, delivered, error |
 | source_language | text | Original video language |
 | target_language | text | Target dubbing language |
 | video_r2_key | text | R2 key for the uploaded video file |
 | audio_r2_key | text | R2 key for the extracted audio file |
 | dubbed_audio_r2_key | text | R2 key for the final dubbed audio file |
-| video_duration_seconds | int4 | Video duration in seconds |
+| video_duration_seconds | float4 | Video duration in seconds |
 | video_size_bytes | int8 | Video file size in bytes |
 | error_message | text | Description in case of pipeline error |
 | created_at | timestamptz | |
@@ -127,6 +132,7 @@ The following features are fully functional and will be preserved in this versio
 | segment_audio_r2_key | text | R2 key for this segment's generated audio |
 | voice_id | text | ElevenLabs voice ID used |
 | is_cloned | bool | Whether voice cloning was used |
+| duration_match | bool | Whether to stretch/compress audio to fit original segment timing |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 
@@ -196,8 +202,6 @@ The top navigation bar includes:
 - Pricing
 - Login / Sign Up (when logged out) or User Menu (when logged in)
 
-The two product tracks (Creator / Viewer) are surfaced on the homepage via tabs, not in the navigation bar, to keep the nav clean and uncluttered.
-
 ### 7.3 Dashboard (/dashboard)
 
 - User's existing projects displayed as cards
@@ -221,10 +225,6 @@ The two product tracks (Creator / Viewer) are surfaced on the homepage via tabs,
 
 ### 7.5 Project Detail Page (/project/[id])
 
-This is the main workspace page for a project, covering all stages of the dubbing process.
-
----
-
 #### Stage 1: Processing
 
 After the user clicks "Start Processing", an asynchronous background pipeline begins on the Railway worker service:
@@ -234,27 +234,20 @@ After the user clicks "Start Processing", an asynchronous background pipeline be
 3. Transcript is saved to Supabase
 4. DeepL API translates the transcript to the target language
 5. Translation is saved to Supabase
-6. ElevenLabs TTS generates audio for each segment
-7. If a speaker has 60+ seconds of audio, their voice is cloned; otherwise a default voice is used
-8. All segment audio files are merged into the final dubbed audio track
+6. ElevenLabs TTS generates audio for each segment using a default voice (voice cloning is a post-MVP feature — see Milestone 9)
+7. Individual segment audio files are uploaded to R2; the final dubbed audio mix is generated separately when the user clicks "Generate Dubbed Audio"
 
 **UI — Loading State:**
 - Step-by-step progress indicator (each pipeline stage shown as a row with a status icon)
 - User can close the page; processing continues in the background on the Railway worker
-- When processing completes, a small toast notification appears in the top-right corner of the screen and auto-dismisses within 5–10 seconds
 - When the user returns to the page, it reflects the current pipeline status
 
----
-
 #### Stage 2: Transcript Editing
-
-Once processing completes, the user is presented with the editing interface:
 
 **Left Panel — Original Transcript:**
 - Each segment: timestamp | speaker name | text
 - Speaker names are editable (SPEAKER_0 → "John", SPEAKER_1 → "Jane")
 - Segment text is inline-editable
-- Play icon per row to listen to that segment's original audio
 
 **Right Panel — Translated Transcript:**
 - Same structure, showing translated text
@@ -265,30 +258,32 @@ Once processing completes, the user is presented with the editing interface:
 **Top Bar:**
 - Manual save button
 - Autosave: every 30 seconds or 3 seconds after the last edit
-- "Last saved: 2 minutes ago" indicator
+- "Saved" / "Saving…" status indicator
 
 **Speaker Management:**
-- Per speaker: name, assigned voice, cloning status
-- Voice selection: "Cloned voice" or a default ElevenLabs voice
-- "Clone Voice" button is active if the speaker's total audio duration is 60+ seconds
+- Per speaker: name (editable)
+- Voice selection and voice cloning UI are not yet implemented (see Milestone 9)
 
----
+#### Stage 3: Review Page (/project/[id]/review)
 
-#### Stage 3: Final Dubbed Audio
+When the user clicks "Generate Dubbed Audio", they are immediately redirected to the review page. The page shows a loading state (same pattern as the processing screen) while the background job runs. Content loads automatically when the job completes.
 
-- All segment audio files are merged
-- Media player to listen to the final dubbed audio
-- Original video and dubbed audio playable in sync mode (sync logic carried over from v1)
-- Sync toggle (enabled/disabled)
-- Download button: download the final dubbed audio (MP3 / WAV)
-- Regenerate button: regenerate the full dub based on current transcript edits
+- Top: original video player and final dubbed audio player in sync mode, with sync toggle (enabled/disabled)
+- Middle: audio timeline editor showing individual segment clips in order — user can drag to reorder segments, play individual segments
+- "Regenerate Mix" button appears when the user reorders segments — re-mixes existing R2 segment files in the new order without re-running the full pipeline
+- Bottom: download button (MP3) and "Back to Transcript" link
+
+**Audio editor scope (v1):**
+- Drag to reorder segments: yes
+- Play individual segments: yes
+- Trim and merge: post-MVP
 
 ---
 
 ## 8. Data Retention & Deletion Policy
 
 - **User deletes a project:** All R2 files (video, audio, segments) and all Supabase records are permanently deleted immediately.
-- **User cancels subscription:** Projects are retained for 90 days. If the subscription is not renewed within 90 days, all projects and associated files are permanently deleted. Warning emails are sent at 30, 7, and 1 day(s) before deletion.
+- **User cancels subscription:** Projects are retained for 90 days. If the subscription is not renewed within 90 days, all projects and associated files are permanently deleted. Warning emails at 30, 7, and 1 day(s) before deletion are planned but not yet implemented (see Milestone 8).
 - **Active subscription:** Projects are retained indefinitely (within plan limits).
 
 ---
@@ -305,8 +300,6 @@ Once processing completes, the user is presented with the editing interface:
 
 ## 10. Design System
 
-The existing design language is preserved across all new screens:
-
 - **Style:** Modern, minimal, tech-focused
 - **Color palette:** Slate/gray tones (slate-50 → slate-900)
 - **Dark mode:** Supported
@@ -319,62 +312,71 @@ Reference prompt used for the original design:
 
 ---
 
-## 11. Milestone Plan
+## 11. Completed Milestones
 
-### Milestone 1 — Storage & DB Infrastructure
-- Cloudflare R2 bucket setup and Next.js integration (presigned URL upload)
-- Add projects, transcripts, speakers tables to Supabase
-- File deletion mechanism (R2 cleanup when a project is deleted)
-
-### Milestone 2 — Video Upload UI
-- Homepage two-tab layout (For Creators / For Viewers)
-- Drag & drop video upload area on homepage and /dashboard/new
-- Auth and subscription gating on upload action
-- Plan-based size/duration validation before upload
-- Upload progress bar
-- Language selection screen
-
-### Milestone 3 — Async Pipeline Integration
-- Decouple existing dubbing pipeline from YouTube URL dependency
-- New endpoint that reads video from R2 and triggers the pipeline
-- Railway worker service for background job processing
-- Supabase status updates per pipeline stage
-- Toast notification on completion
-
-### Milestone 4 — Project Detail Page & Transcript Editor
-- /project/[id] page
-- Loading state with step-by-step progress
-- Side-by-side original + translated transcript editor
-- Speaker name editing
-- Per-segment audio playback and regeneration
-- Autosave + manual save
-
-### Milestone 5 — Final Dubbed Audio & Dashboard Polish
-- Final dubbed audio media player
-- Video + dubbed audio sync player
-- Download button (MP3 / WAV)
-- Dashboard: project list, usage stats
-- "For Viewers" tab (disabled / coming soon)
-
-### Milestone 6 — Pricing & Plan Management
-- Remove existing Stripe plans and create new Starter / Pro / Business plans
-- Plan-based limit enforcement throughout the app
-- 90-day data retention logic on subscription cancellation
-- Warning emails at 30, 7, and 1 day(s) before deletion
+### Milestone 1 — Storage & DB Infrastructure ✓
+### Milestone 2 — Video Upload UI ✓
+### Milestone 3 — Async Pipeline Integration ✓
+### Milestone 4 — Project Detail Page & Transcript Editor ✓
+### Milestone 5 — Review Page & Dashboard Polish ✓
+### Milestone 6 — Pricing & Plan Management ✓
+(Warning emails pending — see Milestone 7)
 
 ---
 
-## 12. Nice-to-Have (Post-MVP)
+## 12. Upcoming Milestones
 
-- **Audio Editor:** Timeline-based drag & drop editor for segment audio (trim, reorder, merge) — similar to the reference screenshot provided
-- **YouTube Integration:** Connect YouTube account via Clerk, add dubbed audio to a YouTube video in one click
-- **YouTube Dubbing (v1 Reactivation):** Re-enable the YouTube URL dubbing flow once yt-dlp supports SABR
+### Milestone 7 — Launch Essentials (Before or at launch)
+- Legal pages: Terms of Service, Privacy Policy, Refund Policy — linked from Stripe checkout and footer
+- Logo and favicon
+- Open Graph / meta tags (title, description, preview image per page — controls how the site appears in Google search results and social media shares)
+- Retry button for failed projects on the dashboard
+
+### Milestone 8 — Stability & Observability (Immediately after launch)
+- Error monitoring: Sentry integration (free tier)
+- Analytics: Posthog or Plausible integration
+- Rate limiting on API endpoints (upload, pipeline trigger)
+- Warning emails via Resend: notify users at 30, 7, and 1 day(s) before project deletion after subscription cancellation
+- Activate usage_tracking table: display real usage data in dashboard ("2/3 projects used this month")
+
+### Milestone 9 — Voice Cloning
+- Per-speaker voice cloning on the transcript page
+- Clone Voice button active when speaker has 60+ seconds of audio
+- Cloned voice selection in speaker management panel
+- Fallback to default ElevenLabs voice when cloning is unavailable
+
+### Milestone 10 — SEO & Discoverability
+- SEO optimization: structured data, sitemap, robots.txt, canonical URLs
+- Homepage onboarding copy: clearer explainer of what Dubtube does, who it's for, and how it works
+- User feedback widget (e.g. "How was your experience?")
+
+### Milestone 11 — Homepage Redesign
+- Content-creator focused visual redesign
+- Social proof: showcase well-known YouTubers, channels, or use cases
+- Before/after audio demos
+- Refined onboarding flow
+
+### Milestone 12 — Advanced Audio Editor
+- Trim individual segments
+- Merge adjacent segments
+- Gap adjustment between segments
+- Full timeline DAW-like interface (scoped conservatively)
+
+### Milestone 13 — YouTube Integration
+- Connect YouTube account via Clerk OAuth
+- One-click: add dubbed audio track directly to an existing YouTube video
+- Requires YouTube Data API v3 integration
+
+### Milestone 14 — YouTube Dubbing (v1 Reactivation)
+- Re-enable YouTube URL dubbing flow once yt-dlp supports SABR format
+- Feature flag toggle in admin/config
+- "For Viewers" tab becomes active
 
 ---
 
 ## 13. Open Decisions
 
-- **Background jobs:** Railway worker service (decided)
-- **Email notifications:** To be handled last; service not yet selected (Resend recommended for easy Next.js integration)
-- **In-app notifications:** Small auto-dismissing toast (5–10 seconds), top-right corner — no browser push notifications
-- **Stripe migration:** Not required; no active subscribers on existing plans
+- **Email service:** Resend selected, not yet implemented
+- **Analytics tool:** Posthog vs Plausible — not yet decided
+- **YouTube integration:** Requires YouTube Data API approval process — plan ahead
+- **Voice cloning UX:** Exact UI flow for cloning on the transcript page to be designed at implementation time

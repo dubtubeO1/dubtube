@@ -33,21 +33,89 @@ Full product details are in `PRD.md`.
 
 ```
 app/
-  layout.tsx                  # Root layout — Navbar imported here
-  page.tsx                    # Homepage (/)
-  globals.css                 # Tailwind import + custom keyframes (shimmer, blob, gradient)
-  components/
-    Navbar.tsx                # Shared components go here (PascalCase)
-  api/
-    extract-audio/route.ts    # API routes go here, one folder per endpoint
-    upload-video/route.ts
-    me/subscription/route.ts
-    stripe/checkout/route.ts
-  pricing/page.tsx
+  layout.tsx                   # Root layout — Navbar imported here
+  page.tsx                     # Homepage (/)
+  globals.css                  # Tailwind import + custom keyframes (shimmer, blob, gradient)
   about/page.tsx
-  dashboard/page.tsx
-  video/[videoId]/page.tsx
-  [videoId]/error.tsx
+  pricing/page.tsx             # Starter / Pro / Business plan cards with billing interval toggle
+  dashboard/
+    page.tsx                   # Project list + usage stats
+    new/page.tsx               # Upload flow + language selection
+  project/
+    [projectId]/
+      page.tsx                 # Transcript editor (completed / delivering / delivered)
+      review/page.tsx          # Dubbed audio review: video player, dubbed audio player, timeline editor
+  components/
+    Navbar.tsx                 # Shared nav component
+    VideoDropZone.tsx          # Reusable drag & drop video upload zone
+  utils/
+    cleanup.ts                 # Utility helpers
+    youtube.ts                 # Legacy YouTube helpers (disabled, preserved for reactivation)
+  api/
+    cron/
+      retention/route.ts       # POST — 90-day data retention cleanup (CRON_SECRET protected)
+    me/
+      subscription/route.ts    # GET — current user subscription status
+    projects/
+      route.ts                 # GET — list user projects
+      [projectId]/
+        route.ts               # GET / PATCH / DELETE — single project
+        start/route.ts         # POST — queue project and trigger worker pipeline
+        deliver/route.ts       # POST — trigger worker to mix final dubbed audio
+        remix/route.ts         # POST — trigger worker to remix in custom segment order
+        dubbed-audio-url/route.ts  # GET — presigned URL for dubbed audio (?download=1 forces attachment)
+        audio-urls/route.ts    # GET — presigned URLs for all segment audio clips
+        video-url/route.ts     # GET — presigned URL for the project video
+        speakers/
+          [speakerId]/route.ts # PATCH — update speaker name / voice
+        transcripts/
+          [transcriptId]/
+            route.ts           # PATCH — update transcript text / duration_match
+            regenerate/route.ts  # POST — re-run TTS for one segment
+            retranslate/route.ts # POST — re-run DeepL for one segment
+    stripe/
+      checkout/route.ts        # POST — create Stripe checkout session
+      portal/route.ts          # POST — create Stripe customer portal session
+      webhook/route.ts         # POST — Stripe webhook handler
+    upload/
+      presign/route.ts         # POST — create project row + R2 presigned PUT URL
+    webhooks/
+      clerk/route.ts           # POST — Clerk user lifecycle webhook
+    verify-turnstile/route.ts  # POST — Cloudflare Turnstile token verification
+    dub/route.ts               # Legacy YouTube dub endpoint (disabled)
+    extract-audio/route.ts     # Legacy audio extraction endpoint (disabled)
+    serve-audio/route.ts       # Legacy audio serving endpoint (disabled)
+    transcribe/route.ts        # Legacy transcription endpoint (disabled)
+    translate/route.ts         # Legacy translation endpoint (disabled)
+  video/[videoId]/page.tsx     # Legacy YouTube video page (disabled)
+  [videoId]/error.tsx          # Legacy error boundary (disabled)
+
+lib/                           # Shared server-side utilities
+  r2.ts                        # R2 client, presigned URL helpers, deleteR2Prefix
+  supabase.ts                  # Supabase client + DB type definitions
+  supabaseAdmin.ts             # Service-role client for server-side use
+  stripe.ts                    # PLAN_CONFIGS (9 plans), getStripeProductIds()
+  stripe-client.ts             # Stripe client-side helpers (loadStripe)
+  plan-limits.ts               # Plan tier limits, resolvePlanTier()
+  user-sync.ts                 # upsertUser / upsertSubscription (used by webhooks)
+  languages.ts                 # 32-language array (DeepL codes, used by all dropdowns)
+  staged-upload.ts             # Module-level file staging between homepage and /dashboard/new
+  ensureYtCookies.ts           # Legacy YouTube cookie helper (disabled)
+  extract-audio-queue.ts       # Legacy queue helper (disabled)
+  proxy.ts                     # Legacy proxy helper (disabled)
+
+worker/                        # Separate Railway service — long-running pipeline jobs
+  src/
+    index.ts                   # Express server: /process, /deliver, /remix endpoints
+    pipeline.ts                # runPipeline(), runDeliver(), runRemix()
+    steps/
+      transcribe.ts            # Lemonfox Whisper transcription + diarization
+      translate.ts             # DeepL translation
+      tts.ts                   # ElevenLabs TTS per segment
+      mix-audio.ts             # mixDubbedAudio() time-positioned, concatDubbedAudio() sequential
+    lib/
+      r2.ts                    # Worker-side R2 helpers (download / upload)
+      supabase.ts              # Worker-side Supabase admin client
 ```
 
 ### Rules for new files
@@ -123,9 +191,7 @@ app/
 - Use the regular `supabase` client (anon key) only for client-side reads where RLS allows
 - Never expose the service role key to the client
 
-**Existing tables:** `users`, `subscriptions`, `usage_tracking`
-
-**New tables (v2):** `projects`, `transcripts`, `speakers` — see PRD.md Section 5 for full schema
+**Tables:** `users`, `subscriptions`, `usage_tracking`, `projects`, `transcripts`, `speakers` — see PRD.md Section 5 for full schema
 
 ---
 
