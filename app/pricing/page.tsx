@@ -327,6 +327,14 @@ export default function PricingPage() {
           })}
         </div>
 
+        {/* Legal consent */}
+        <p className="text-center text-xs text-slate-400 dark:text-slate-500 -mt-10 mb-16">
+          By subscribing you agree to our{' '}
+          <a href="/legal/Dubtube_Terms_of_Service.pdf" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Terms of Service</a>,{' '}
+          <a href="/legal/Dubtube_Privacy_Policy.pdf" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Privacy Policy</a>, and{' '}
+          <a href="/legal/Dubtube_Refund_Policy.pdf" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Refund Policy</a>.
+        </p>
+
         {/* Manage subscription */}
         {user && subscriptionInfo?.is_active && (
           <div className="mb-16 text-center">
