@@ -13,18 +13,18 @@ export const metadata: Metadata = {
     default: 'DubTube — AI-Powered Video Dubbing',
     template: '%s | DubTube',
   },
-  description: 'Upload your video and get AI-powered dubbed audio in any language — powered by Whisper, DeepL, and ElevenLabs.',
+  description: 'AI video dubbing for content creators. Reach a global audience in 30+ languages — upload your video, pick a language, and get professional dubbed audio in minutes.',
   openGraph: {
     type: 'website',
     siteName: 'DubTube',
     title: 'DubTube — AI-Powered Video Dubbing',
-    description: 'Upload your video and get AI-powered dubbed audio in any language — powered by Whisper, DeepL, and ElevenLabs.',
+    description: 'AI video dubbing for content creators. Reach a global audience in 30+ languages — upload your video, pick a language, and get professional dubbed audio in minutes.',
     images: [{ url: '/Logo_Banner.png', width: 1200, height: 630, alt: 'DubTube' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'DubTube — AI-Powered Video Dubbing',
-    description: 'Upload your video and get AI-powered dubbed audio in any language — powered by Whisper, DeepL, and ElevenLabs.',
+    description: 'AI video dubbing for content creators. Reach a global audience in 30+ languages — upload your video, pick a language, and get professional dubbed audio in minutes.',
     images: ['/Logo_Banner.png'],
   },
 };
