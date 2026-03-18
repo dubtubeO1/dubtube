@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local": "concurrently --names \"next,tunnel,worker\" --prefix-colors \"cyan,yellow,magenta\" \"next dev\" \"cloudflared tunnel run dubtube-local\" \"npm run dev --prefix worker\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -36,6 +37,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

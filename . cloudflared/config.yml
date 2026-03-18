@@ -1,0 +1,7 @@
+tunnel: dubtube-local
+credentials-file: /Users/yusufyigitaydemir/.cloudflared/a28cd8d5-e03a-4d9f-b9ff-8eb60cc96b82.json
+
+ingress:
+  - hostname: local.dubtube.net
+    service: http://localhost:3000
+  - service: http_status:404
