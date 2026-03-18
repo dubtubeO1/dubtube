@@ -8,8 +8,25 @@ import { ClerkProvider } from '@clerk/nextjs';
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "DubTube - YouTube Video Translation",
-  description: "Translate YouTube videos while maintaining perfect audio synchronization",
+  metadataBase: new URL('https://dubtube.net'),
+  title: {
+    default: 'DubTube — AI-Powered Video Dubbing',
+    template: '%s | DubTube',
+  },
+  description: 'Upload your video and get AI-powered dubbed audio in any language — powered by Whisper, DeepL, and ElevenLabs.',
+  openGraph: {
+    type: 'website',
+    siteName: 'DubTube',
+    title: 'DubTube — AI-Powered Video Dubbing',
+    description: 'Upload your video and get AI-powered dubbed audio in any language — powered by Whisper, DeepL, and ElevenLabs.',
+    images: [{ url: '/Logo_Banner.png', width: 1200, height: 630, alt: 'DubTube' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'DubTube — AI-Powered Video Dubbing',
+    description: 'Upload your video and get AI-powered dubbed audio in any language — powered by Whisper, DeepL, and ElevenLabs.',
+    images: ['/Logo_Banner.png'],
+  },
 };
 
 export default function RootLayout({

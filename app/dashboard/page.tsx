@@ -16,6 +16,7 @@ import {
   Trash2,
   AlertTriangle,
   Pencil,
+  RefreshCcw,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -106,6 +107,7 @@ export default function Dashboard() {
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null)
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
   const [titleDraft, setTitleDraft] = useState('')
+  const [retryLoadingId, setRetryLoadingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isLoaded || !user) return
@@ -182,6 +184,26 @@ export default function Dashboard() {
     : 'Free'
 
   const confirmDeleteProject = projects.find((p) => p.id === confirmDeleteId) ?? null
+
+  const handleRetry = async (project: Project) => {
+    if (!project.target_language) return
+    setRetryLoadingId(project.id)
+    setProjects((prev) => prev.map((p) => p.id === project.id ? { ...p, status: 'queued' } : p))
+    try {
+      const res = await fetch(`/api/projects/${project.id}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_language: project.source_language, target_language: project.target_language }),
+      })
+      if (!res.ok) {
+        setProjects((prev) => prev.map((p) => p.id === project.id ? { ...p, status: 'error' } : p))
+      }
+    } catch {
+      setProjects((prev) => prev.map((p) => p.id === project.id ? { ...p, status: 'error' } : p))
+    } finally {
+      setRetryLoadingId(null)
+    }
+  }
 
   const handleRenameProject = async (projectId: string, newTitle: string) => {
     const trimmed = newTitle.trim()
@@ -448,6 +470,26 @@ export default function Dashboard() {
                           {STATUS_LABEL[project.status]}
                         </span>
                       </div>
+
+                      {/* Retry button — error only */}
+                      {project.status === 'error' && (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            void handleRetry(project)
+                          }}
+                          title="Retry processing"
+                          disabled={retryLoadingId === project.id}
+                          className="shrink-0 p-1.5 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {retryLoadingId === project.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <RefreshCcw className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
 
                       {/* Delete button */}
                       <button

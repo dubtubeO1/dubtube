@@ -148,6 +148,7 @@ export default function ProjectPage() {
   const [retranslating, setRetranslating] = useState<Set<string>>(new Set())
   const [playingId, setPlayingId] = useState<string | null>(null)
   const [delivering, setDelivering] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const [showDurationBanner, setShowDurationBanner] = useState(true)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -201,6 +202,9 @@ export default function ProjectPage() {
         speakers: SpeakerRow[]
       }
       setProject(data.project)
+      if (data.project.status === 'error' && data.project.error_message) {
+        console.error('[project] pipeline error:', data.project.error_message)
+      }
       if (data.project.status === 'completed' || data.project.status === 'delivering' || data.project.status === 'delivered') {
         setTranscripts(data.transcripts)
         setSpeakers(data.speakers)
@@ -421,6 +425,28 @@ export default function ProjectPage() {
     [projectId],
   )
 
+  // ── Retry failed pipeline ─────────────────────────────────────────────────
+
+  const handleRetry = useCallback(async () => {
+    if (!project?.target_language) return
+    setRetrying(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_language: project.source_language,
+          target_language: project.target_language,
+        }),
+      })
+      if (res.ok) {
+        setProject((prev) => prev ? { ...prev, status: 'queued', error_message: null } : prev)
+      }
+    } catch { /* silent */ } finally {
+      setRetrying(false)
+    }
+  }, [projectId, project])
+
   // ── Deliver (generate dubbed audio) ──────────────────────────────────────
 
   const handleDeliver = useCallback(async () => {
@@ -613,17 +639,31 @@ export default function ProjectPage() {
                   <div>
                     <p className="font-medium mb-0.5">Processing failed</p>
                     <p className="text-red-600">
-                      {project.error_message ?? 'An unexpected error occurred.'}
+                      Something went wrong while processing your video. Please try again.
                     </p>
                   </div>
                 </div>
-                <Link
-                  href="/dashboard"
-                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 transition-colors"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  <span>Back to Dashboard</span>
-                </Link>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => void handleRetry()}
+                    disabled={retrying}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {retrying ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="w-4 h-4" />
+                    )}
+                    <span>Retry</span>
+                  </button>
+                  <Link
+                    href="/dashboard"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-slate-600 text-sm font-medium border border-slate-200 hover:bg-slate-50 transition-colors"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Back to Dashboard</span>
+                  </Link>
+                </div>
               </div>
             )}
 
