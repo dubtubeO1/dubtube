@@ -15,6 +15,7 @@ import {
   FileVideo,
   Trash2,
   AlertTriangle,
+  Pencil,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -103,6 +104,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null)
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
+  const [titleDraft, setTitleDraft] = useState('')
 
   useEffect(() => {
     if (!isLoaded || !user) return
@@ -179,6 +182,26 @@ export default function Dashboard() {
     : 'Free'
 
   const confirmDeleteProject = projects.find((p) => p.id === confirmDeleteId) ?? null
+
+  const handleRenameProject = async (projectId: string, newTitle: string) => {
+    const trimmed = newTitle.trim()
+    setEditingProjectId(null)
+    if (!trimmed) return
+    const current = projects.find((p) => p.id === projectId)
+    if (trimmed === current?.title) return
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: trimmed }),
+      })
+      if (res.ok) {
+        setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, title: trimmed } : p))
+      }
+    } catch {
+      // Silent — title stays as-is
+    }
+  }
 
   const handleDeleteConfirm = async () => {
     if (!confirmDeleteId) return
@@ -339,83 +362,123 @@ export default function Dashboard() {
           ) : (
             <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="divide-y divide-slate-100">
-                {projects.map((project) => (
-                  <Link
-                    key={project.id}
-                    href={`/project/${project.id}`}
-                    className="relative flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 transition-colors group"
-                  >
-                    {/* Status icon */}
-                    <div className="shrink-0">
-                      {project.status === 'error' ? (
-                        <XCircle className="w-5 h-5 text-red-400" />
-                      ) : project.status === 'delivered' ? (
-                        <Download className="w-5 h-5 text-emerald-500" />
-                      ) : project.status === 'completed' ? (
-                        <CheckCircle className="w-5 h-5 text-green-500" />
-                      ) : isProcessing(project.status) ? (
-                        <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-                      ) : (
-                        <Clock className="w-5 h-5 text-slate-300" />
-                      )}
-                    </div>
+                {projects.map((project) => {
+                  const isEditing = editingProjectId === project.id
+                  const rowClass = 'relative flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 transition-colors group'
 
-                    {/* Title + meta */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-700 truncate group-hover:text-slate-900 transition-colors">
-                        {project.title}
-                      </p>
-                      <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-400">
-                        {project.source_language && project.target_language && (
-                          <span className="flex items-center gap-1">
-                            <Languages className="w-3 h-3" />
-                            {project.source_language} → {project.target_language}
-                          </span>
+                  const rowContent = (
+                    <>
+                      {/* Status icon */}
+                      <div className="shrink-0">
+                        {project.status === 'error' ? (
+                          <XCircle className="w-5 h-5 text-red-400" />
+                        ) : project.status === 'delivered' ? (
+                          <Download className="w-5 h-5 text-emerald-500" />
+                        ) : project.status === 'completed' ? (
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                        ) : isProcessing(project.status) ? (
+                          <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                        ) : (
+                          <Clock className="w-5 h-5 text-slate-300" />
                         )}
-                        {project.video_size_bytes && (
-                          <span className="flex items-center gap-1">
-                            <FileVideo className="w-3 h-3" />
-                            {formatBytes(project.video_size_bytes)}
-                          </span>
-                        )}
-                        <span>{formatDate(project.created_at)}</span>
                       </div>
-                      {project.status === 'error' && project.error_message && (
-                        <p className="text-xs text-red-500 mt-0.5 truncate">{project.error_message}</p>
-                      )}
-                    </div>
 
-                    {/* Status badge */}
-                    <div className="shrink-0">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_COLOR[project.status]}`}
-                      >
-                        {isProcessing(project.status) && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                      {/* Title + meta */}
+                      <div className="flex-1 min-w-0">
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            value={titleDraft}
+                            onChange={(e) => setTitleDraft(e.target.value)}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
+                            onBlur={() => void handleRenameProject(project.id, titleDraft)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void handleRenameProject(project.id, titleDraft)
+                              if (e.key === 'Escape') setEditingProjectId(null)
+                            }}
+                            className="text-sm font-medium text-slate-700 bg-transparent border-b border-slate-400 focus:border-slate-700 focus:outline-none w-full"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-1.5 group/title">
+                            <p className="text-sm font-medium text-slate-700 truncate group-hover:text-slate-900 transition-colors">
+                              {project.title}
+                            </p>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setTitleDraft(project.title)
+                                setEditingProjectId(project.id)
+                              }}
+                              title="Rename project"
+                              className="shrink-0 p-0.5 rounded text-slate-300 hover:text-slate-600 transition-colors opacity-0 group-hover/title:opacity-100"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          </div>
                         )}
-                        {STATUS_LABEL[project.status]}
-                      </span>
-                    </div>
+                        <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-400">
+                          {project.source_language && project.target_language && (
+                            <span className="flex items-center gap-1">
+                              <Languages className="w-3 h-3" />
+                              {project.source_language} → {project.target_language}
+                            </span>
+                          )}
+                          {project.video_size_bytes && (
+                            <span className="flex items-center gap-1">
+                              <FileVideo className="w-3 h-3" />
+                              {formatBytes(project.video_size_bytes)}
+                            </span>
+                          )}
+                          <span>{formatDate(project.created_at)}</span>
+                        </div>
+                        {project.status === 'error' && project.error_message && (
+                          <p className="text-xs text-red-500 mt-0.5 truncate">{project.error_message}</p>
+                        )}
+                      </div>
 
-                    {/* Delete button — sits inside Link but stops propagation */}
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        if (deleteLoadingId === project.id) return
-                        setConfirmDeleteId(project.id)
-                      }}
-                      title="Delete project"
-                      className="shrink-0 p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      {deleteLoadingId === project.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                    </button>
-                  </Link>
-                ))}
+                      {/* Status badge */}
+                      <div className="shrink-0">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_COLOR[project.status]}`}
+                        >
+                          {isProcessing(project.status) && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                          )}
+                          {STATUS_LABEL[project.status]}
+                        </span>
+                      </div>
+
+                      {/* Delete button */}
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          if (deleteLoadingId === project.id) return
+                          setConfirmDeleteId(project.id)
+                        }}
+                        title="Delete project"
+                        className="shrink-0 p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        {deleteLoadingId === project.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    </>
+                  )
+
+                  return isEditing ? (
+                    <div key={project.id} className={rowClass}>
+                      {rowContent}
+                    </div>
+                  ) : (
+                    <Link key={project.id} href={`/project/${project.id}`} className={rowClass}>
+                      {rowContent}
+                    </Link>
+                  )
+                })}
               </div>
             </div>
           )}

@@ -18,6 +18,8 @@ import {
   Download,
   Timer,
   ExternalLink,
+  Info,
+  X,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -146,6 +148,9 @@ export default function ProjectPage() {
   const [retranslating, setRetranslating] = useState<Set<string>>(new Set())
   const [playingId, setPlayingId] = useState<string | null>(null)
   const [delivering, setDelivering] = useState(false)
+  const [showDurationBanner, setShowDurationBanner] = useState(true)
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
 
   // ── Refs ──
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -434,6 +439,26 @@ export default function ProjectPage() {
     }
   }, [projectId, router])
 
+  // ── Title editing ─────────────────────────────────────────────────────────
+
+  const handleTitleSave = useCallback(async () => {
+    const trimmed = titleDraft.trim()
+    setIsEditingTitle(false)
+    if (!trimmed || trimmed === project?.title) return
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: trimmed }),
+      })
+      if (res.ok) {
+        setProject((prev) => (prev ? { ...prev, title: trimmed } : prev))
+      }
+    } catch {
+      // Silent — title reverts to original on next load
+    }
+  }, [projectId, project?.title, titleDraft])
+
   // ── Duration match toggle ─────────────────────────────────────────────────
 
   const handleDurationMatchToggle = useCallback(
@@ -659,7 +684,29 @@ export default function ProjectPage() {
             {/* Header card */}
             <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-lg px-6 py-4 flex flex-wrap items-center justify-between gap-4">
               <div className="min-w-0">
-                <h1 className="text-lg font-bold text-slate-700 truncate">{project.title}</h1>
+                {isEditingTitle ? (
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onBlur={() => void handleTitleSave()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void handleTitleSave()
+                      if (e.key === 'Escape') setIsEditingTitle(false)
+                    }}
+                    className="text-lg font-bold text-slate-700 bg-transparent border-b border-slate-400 focus:border-slate-700 focus:outline-none w-full"
+                  />
+                ) : (
+                  <div className="flex items-center gap-2 group/title">
+                    <h1 className="text-lg font-bold text-slate-700 truncate">{project.title}</h1>
+                    <button
+                      onClick={() => { setTitleDraft(project.title); setIsEditingTitle(true) }}
+                      className="opacity-0 group-hover/title:opacity-100 transition-opacity p-0.5 rounded text-slate-400 hover:text-slate-600"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
                 {project.target_language && (
                   <p className="text-xs text-slate-400 mt-0.5">
                     {project.source_language
@@ -693,13 +740,28 @@ export default function ProjectPage() {
                   Save
                 </button>
                 {project.status === 'delivered' ? (
-                  <Link
-                    href={`/project/${projectId}/review`}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    View Dubbed Audio
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => void handleDeliver()}
+                      disabled={delivering}
+                      title="Re-mix the dubbed audio with current settings"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-sm font-medium hover:bg-slate-200 transition-colors border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {delivering ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      )}
+                      Regenerate
+                    </button>
+                    <Link
+                      href={`/project/${projectId}/review`}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      View Dubbed Audio
+                    </Link>
+                  </div>
                 ) : project.status === 'delivering' ? (
                   <Link
                     href={`/project/${projectId}/review`}
@@ -735,6 +797,23 @@ export default function ProjectPage() {
                   playsInline
                   className="w-full max-h-80 bg-black"
                 />
+              </div>
+            )}
+
+            {/* Duration match info banner */}
+            {showDurationBanner && (
+              <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300">
+                <div className="flex items-center gap-2">
+                  <Info className="w-4 h-4 shrink-0 text-slate-400" />
+                  <span>Match Duration is enabled by default — segments will be sped up or slowed down to fit the original timing.</span>
+                </div>
+                <button
+                  onClick={() => setShowDurationBanner(false)}
+                  className="shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                  aria-label="Dismiss"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             )}
 
@@ -927,18 +1006,26 @@ export default function ProjectPage() {
                                 )}
                                 {isRegenerating ? 'Generating…' : 'Regenerate'}
                               </button>
-                              <button
-                                onClick={() => void handleDurationMatchToggle(transcript.id, transcript.duration_match)}
-                                title={transcript.duration_match ? 'Disable duration match for this segment' : 'Stretch/compress audio to fit original timing'}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                                  transcript.duration_match
-                                    ? 'bg-slate-700 text-white hover:bg-slate-800'
-                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                }`}
-                              >
-                                <Timer className="w-3.5 h-3.5" />
-                                Match duration
-                              </button>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => void handleDurationMatchToggle(transcript.id, transcript.duration_match)}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                                    transcript.duration_match
+                                      ? 'bg-slate-700 text-white hover:bg-slate-800'
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  <Timer className="w-3.5 h-3.5" />
+                                  Match duration
+                                </button>
+                                <div className="relative group">
+                                  <Info className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600 cursor-default transition-colors" />
+                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 px-3 py-2 rounded-lg bg-slate-800 text-white text-xs leading-relaxed opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 z-10">
+                                    When enabled, the dubbed audio for this segment will be sped up or slowed down to match the original speaker&apos;s timing. Disable it if the speed distortion is too noticeable.
+                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+                                  </div>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>

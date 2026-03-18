@@ -183,6 +183,7 @@ export async function runPipeline(projectId: string): Promise<void> {
         segment_audio_r2_key: r2Key,
         voice_id: voiceId,
         is_cloned: false,
+        duration_match: true,
       })
     }
 
