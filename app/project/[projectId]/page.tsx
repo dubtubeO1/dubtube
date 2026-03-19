@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import posthog from 'posthog-js'
 import {
   ArrowLeft,
   CheckCircle,
@@ -454,6 +455,7 @@ export default function ProjectPage() {
     try {
       const res = await fetch(`/api/projects/${projectId}/deliver`, { method: 'POST' })
       if (res.ok) {
+        posthog.capture('dubbed_audio_generation_started', { project_id: projectId })
         router.push(`/project/${projectId}/review`)
       } else {
         console.error('Failed to start delivery')

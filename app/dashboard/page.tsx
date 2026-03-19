@@ -3,6 +3,7 @@
 import { useUser } from '@clerk/nextjs'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import posthog from 'posthog-js'
 import Link from 'next/link'
 import {
   Plus,
@@ -143,6 +144,7 @@ export default function Dashboard() {
     if (!user) return
     const urlParams = new URLSearchParams(window.location.search)
     if (urlParams.get('success') === 'true') {
+      posthog.capture('subscription_started')
       setTimeout(() => {
         void fetch('/api/me/subscription')
           .then((r) => r.json())

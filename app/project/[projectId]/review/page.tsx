@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import posthog from 'posthog-js'
 import {
   ArrowLeft,
   AlertCircle,
@@ -408,6 +409,7 @@ export default function ReviewPage() {
       const res = await fetch(`/api/projects/${projectId}/dubbed-audio-url?download=1`)
       if (!res.ok) return
       const { url } = (await res.json()) as { url: string }
+      posthog.capture('dubbed_audio_downloaded', { project_id: projectId })
       const a = document.createElement('a')
       a.href = url
       document.body.appendChild(a)

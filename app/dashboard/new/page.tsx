@@ -8,6 +8,7 @@ import { ArrowLeft, Check, FileVideo, X, AlertCircle } from 'lucide-react'
 import VideoDropZone from '@/app/components/VideoDropZone'
 import { LANGUAGES } from '@/lib/languages'
 import { getStagedFile, clearStagedFile } from '@/lib/staged-upload'
+import posthog from 'posthog-js'
 
 type Step = 'upload' | 'uploading' | 'language'
 
@@ -181,6 +182,11 @@ export default function NewProjectPage() {
         setIsSubmitting(false)
         return
       }
+      posthog.capture('project_created', {
+        project_id: projectId,
+        source_language: sourceLanguage || 'auto',
+        target_language: targetLanguage,
+      })
       router.push(`/project/${projectId}`)
     } catch {
       setError('Network error. Please try again.')
