@@ -138,6 +138,7 @@ async function runPipeline(projectId) {
                 segment_audio_r2_key: r2Key,
                 voice_id: voiceId,
                 is_cloned: false,
+                duration_match: true,
             });
         }
         // Batch insert all transcript rows

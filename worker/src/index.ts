@@ -1,4 +1,6 @@
+import './instrument'
 import express, { Request, Response } from 'express'
+import * as Sentry from '@sentry/node'
 import { runPipeline, runDeliver, runRemix } from './pipeline'
 
 const app = express()
@@ -34,6 +36,7 @@ app.post('/process', (req: Request, res: Response) => {
   res.json({ ok: true, projectId })
 
   runPipeline(projectId).catch((err: unknown) => {
+    Sentry.captureException(err, { extra: { projectId, job: 'pipeline' } })
     console.error('Unhandled pipeline error', { projectId, error: err })
   })
 })
@@ -60,6 +63,7 @@ app.post('/deliver', (req: Request, res: Response) => {
   res.json({ ok: true, projectId })
 
   runDeliver(projectId).catch((err: unknown) => {
+    Sentry.captureException(err, { extra: { projectId, job: 'deliver' } })
     console.error('Unhandled deliver error', { projectId, error: err })
   })
 })
@@ -91,9 +95,14 @@ app.post('/remix', (req: Request, res: Response) => {
   res.json({ ok: true, projectId })
 
   runRemix(projectId, segmentOrder as string[]).catch((err: unknown) => {
+    Sentry.captureException(err, { extra: { projectId, job: 'remix' } })
     console.error('Unhandled remix error', { projectId, error: err })
   })
 })
+
+// ── Sentry error handler (must be after all routes) ───────────────────────────
+
+Sentry.setupExpressErrorHandler(app)
 
 // ── Start server ──────────────────────────────────────────────────────────────
 

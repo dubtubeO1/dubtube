@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.995.0",
+    "@sentry/node": "^10.44.0",
     "@supabase/supabase-js": "^2.57.4",
     "express": "^4.21.2"
   },
