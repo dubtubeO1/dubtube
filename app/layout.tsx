@@ -10,20 +10,20 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   metadataBase: new URL('https://dubtube.net'),
   title: {
-    default: 'DubTube — AI-Powered Video Dubbing',
-    template: '%s | DubTube',
+    default: 'Dubtube — AI Video Dubbing for Content Creators',
+    template: '%s | Dubtube',
   },
   description: 'AI video dubbing for content creators. Reach a global audience in 30+ languages — upload your video, pick a language, and get professional dubbed audio in minutes.',
   openGraph: {
     type: 'website',
-    siteName: 'DubTube',
-    title: 'DubTube — AI-Powered Video Dubbing',
+    siteName: 'Dubtube',
+    title: 'Dubtube — AI Video Dubbing for Content Creators',
     description: 'AI video dubbing for content creators. Reach a global audience in 30+ languages — upload your video, pick a language, and get professional dubbed audio in minutes.',
-    images: [{ url: '/Logo_Banner.png', width: 1200, height: 630, alt: 'DubTube' }],
+    images: [{ url: '/Logo_Banner.png', width: 1200, height: 630, alt: 'Dubtube' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'DubTube — AI-Powered Video Dubbing',
+    title: 'Dubtube — AI Video Dubbing for Content Creators',
     description: 'AI video dubbing for content creators. Reach a global audience in 30+ languages — upload your video, pick a language, and get professional dubbed audio in minutes.',
     images: ['/Logo_Banner.png'],
   },

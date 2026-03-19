@@ -1,5 +1,5 @@
 # Dubtube — Product Requirements Document (PRD)
-**Version:** 2.1 (Post-MVP Roadmap)
+**Version:** 2.3 (Post-MVP Roadmap)
 **Last Updated:** March 2026
 **Status:** Active Development
 
@@ -45,10 +45,18 @@ The following features are fully functional:
 - Cloudflare: Bot/crawler protection
 - Dubbing pipeline (transcription → translation → TTS → merge): Fully functional
 - Cloudflare R2: Video and audio file storage
-- Project management: Create, view, delete projects
-- Transcript editor: Side-by-side original and translated transcript editing
+- Project management: Create, view, delete, retry failed projects; inline project title editing
+- Transcript editor: Side-by-side original and translated transcript editing; per-segment Match Duration toggle (enabled by default); regenerate dubbed audio button
 - Per-segment audio playback and regeneration
 - Review page: Video + dubbed audio sync player, audio timeline with drag-to-reorder, download button
+- Dashboard: Usage stats (projects this month / plan limit) sourced from usage_tracking table
+- Legal pages: Privacy Policy, Terms of Service, Refund Policy, Cookie Policy (PDFs under /public/legal/, linked in footer)
+- OG meta tags and favicon: Logo_Banner.png used as og:image for all pages
+- Error monitoring: Sentry (Next.js app + Railway worker)
+- Analytics: PostHog (web analytics + product analytics with custom events)
+- Rate limiting: 5 requests / 60 seconds per user on upload and pipeline trigger endpoints
+- Warning emails: Resend, sent from contact@dubtube.net at days 1, 7, 15, and 29 after subscription cancellation
+- 30-day data retention after cancellation with automated cleanup cron
 
 **The only broken piece:** YouTube video fetching via yt-dlp due to the SABR format change.
 
@@ -84,6 +92,11 @@ The following features are fully functional:
 | cancel_at_period_end | bool |
 | stripe_customer_id | text |
 | stripe_product_id | text |
+| subscription_ended_at | timestamptz |
+| warning_1_sent_at | timestamptz |
+| warning_7_sent_at | timestamptz |
+| warning_15_sent_at | timestamptz |
+| warning_29_sent_at | timestamptz |
 
 ### `usage_tracking`
 | Column | Type |
@@ -256,9 +269,10 @@ After the user clicks "Start Processing", an asynchronous background pipeline be
 - Regenerate icon per row to regenerate just that segment's audio
 
 **Top Bar:**
-- Manual save button
 - Autosave: every 30 seconds or 3 seconds after the last edit
 - "Saved" / "Saving…" status indicator
+- "Generate Dubbed Audio" button (when status is `completed`) or "Regenerate" + "View Dubbed Audio" buttons (when status is `delivered`)
+- Retry button (when status is `error`) — re-queues the project through the full pipeline
 
 **Speaker Management:**
 - Per speaker: name (editable)
@@ -283,8 +297,21 @@ When the user clicks "Generate Dubbed Audio", they are immediately redirected to
 ## 8. Data Retention & Deletion Policy
 
 - **User deletes a project:** All R2 files (video, audio, segments) and all Supabase records are permanently deleted immediately.
-- **User cancels subscription:** Projects are retained for 90 days. If the subscription is not renewed within 90 days, all projects and associated files are permanently deleted. Warning emails at 30, 7, and 1 day(s) before deletion are planned but not yet implemented (see Milestone 8).
+- **User cancels subscription:** Projects are retained for **30 days** after cancellation. If the subscription is not renewed within 30 days, all projects and associated R2 files are permanently deleted by the retention cron (`POST /api/cron/retention`).
 - **Active subscription:** Projects are retained indefinitely (within plan limits).
+
+### Warning Email Schedule
+
+Sent automatically by `POST /api/cron/warning-emails` (runs daily), from `contact@dubtube.net` via Resend:
+
+| Day after cancellation | Email |
+|---|---|
+| Day 1 | "Your projects will be deleted in 30 days" |
+| Day 7 | "Action required: projects will be deleted on [date]" |
+| Day 15 | "Action required: projects will be deleted on [date]" |
+| Day 29 | "Final notice: projects will be deleted tomorrow" |
+
+Each warning is stamped to its `warning_*_sent_at` column only after a confirmed successful send, so a failed cron run automatically retries on the next execution. The "Reactivate Subscription" button in each email links to `/pricing`.
 
 ---
 
@@ -320,24 +347,27 @@ Reference prompt used for the original design:
 ### Milestone 4 — Project Detail Page & Transcript Editor ✓
 ### Milestone 5 — Review Page & Dashboard Polish ✓
 ### Milestone 6 — Pricing & Plan Management ✓
-(Warning emails pending — see Milestone 7)
+### Milestone 7 — Launch Essentials ✓
+- Legal pages (Privacy Policy, Terms of Service, Refund Policy, Cookie Policy) as PDFs under `/public/legal/`, linked in footer
+- Logo (Navbar) and favicon
+- OG meta tags for all pages using `Logo_Banner.png` as og:image
+- Retry button for failed projects (dashboard + project detail page)
+- Error message on failed projects shows a user-friendly message; raw error logged server-side only
+- Inline project title editing on dashboard and transcript page
+- Match Duration enabled by default for new projects; dismissable info banner on transcript page
+- Regenerate dubbed audio button on transcript page when status is `delivered`
+
+### Milestone 8 — Stability & Observability ✓
+- Sentry error monitoring integrated in Next.js app and Railway worker
+- PostHog product analytics integrated (web analytics + custom events: project_created, pipeline_started, dubbed_audio_downloaded, subscription_started)
+- Rate limiting: 5 requests / 60 seconds per user on `/api/upload/presign` and `/api/projects/[id]/start`
+- Warning emails via Resend (`contact@dubtube.net`) at days 1, 7, 15, 29 after cancellation
+- Retention period changed from 90 days to 30 days
+- `usage_tracking` table activated: incremented at project creation, reset monthly, displayed in dashboard
 
 ---
 
 ## 12. Upcoming Milestones
-
-### Milestone 7 — Launch Essentials (Before or at launch)
-- Legal pages: Terms of Service, Privacy Policy, Refund Policy — linked from Stripe checkout and footer
-- Logo and favicon
-- Open Graph / meta tags (title, description, preview image per page — controls how the site appears in Google search results and social media shares)
-- Retry button for failed projects on the dashboard
-
-### Milestone 8 — Stability & Observability (Immediately after launch)
-- Error monitoring: Sentry integration (free tier)
-- Analytics: Posthog or Plausible integration
-- Rate limiting on API endpoints (upload, pipeline trigger)
-- Warning emails via Resend: notify users at 30, 7, and 1 day(s) before project deletion after subscription cancellation
-- Activate usage_tracking table: display real usage data in dashboard ("2/3 projects used this month")
 
 ### Milestone 9 — Voice Cloning
 - Per-speaker voice cloning on the transcript page
@@ -376,7 +406,5 @@ Reference prompt used for the original design:
 
 ## 13. Open Decisions
 
-- **Email service:** Resend selected, not yet implemented
-- **Analytics tool:** Posthog vs Plausible — not yet decided
 - **YouTube integration:** Requires YouTube Data API approval process — plan ahead
 - **Voice cloning UX:** Exact UI flow for cloning on the transcript page to be designed at implementation time
