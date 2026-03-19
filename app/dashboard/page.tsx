@@ -50,6 +50,7 @@ interface UserData {
   plan_name: string | null
   stripe_customer_id: string | null
   created_at: string | null
+  videos_processed: number | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -165,12 +166,8 @@ export default function Dashboard() {
     )
   }
 
-  // Usage stats
-  const now = new Date()
-  const thisMonthProjects = projects.filter((p) => {
-    const created = new Date(p.created_at)
-    return created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth()
-  }).length
+  // Usage stats — sourced from usage_tracking table (incremented at project creation, reset monthly)
+  const thisMonthProjects = userData?.videos_processed ?? 0
 
   // Plan limits — mirrors lib/plan-limits.ts PLAN_LIMITS
   const MONTHLY_LIMITS: Record<string, number> = {

@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getPresignedUploadUrl, buildR2Key } from '@/lib/r2'
 import { resolvePlanTier, getPlanLimits } from '@/lib/plan-limits'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const ALLOWED_CONTENT_TYPES = new Set([
   'video/mp4',
@@ -26,6 +27,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const { userId } = await auth()
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    if (!checkRateLimit(`presign:${userId}`, 5, 60_000)) {
+      return NextResponse.json({ error: 'Too many requests. Please wait a moment.' }, { status: 429 })
     }
 
     if (!supabaseAdmin) {
@@ -157,6 +162,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (insertError) {
       console.error('Error creating project', { userId, projectId, error: insertError })
       return NextResponse.json({ error: 'Failed to create project' }, { status: 500 })
+    }
+
+    // Upsert usage_tracking — increment videos_processed, reset monthly
+    const startOfMonth = new Date()
+    startOfMonth.setUTCDate(1)
+    startOfMonth.setUTCHours(0, 0, 0, 0)
+    const startOfMonthDate = startOfMonth.toISOString().split('T')[0]!
+
+    const { data: usageRow } = await supabaseAdmin
+      .from('usage_tracking')
+      .select('id, videos_processed, last_reset_date')
+      .eq('user_id', userRow.id)
+      .maybeSingle()
+
+    if (!usageRow) {
+      await supabaseAdmin.from('usage_tracking').insert({
+        user_id: userRow.id,
+        videos_processed: 1,
+        last_reset_date: startOfMonthDate,
+      })
+    } else {
+      const isNewMonth = usageRow.last_reset_date < startOfMonthDate
+      await supabaseAdmin
+        .from('usage_tracking')
+        .update({
+          videos_processed: isNewMonth ? 1 : usageRow.videos_processed + 1,
+          last_reset_date: startOfMonthDate,
+        })
+        .eq('id', usageRow.id)
     }
 
     // Generate presigned upload URL

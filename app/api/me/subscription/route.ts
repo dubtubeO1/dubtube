@@ -51,12 +51,29 @@ export async function GET(): Promise<NextResponse> {
       status === 'legacy' ||
       (subscriptionData?.status === 'active' || subscriptionData?.status === 'trialing');
 
+    const { data: usageRow } = await supabaseAdmin
+      .from('usage_tracking')
+      .select('videos_processed, last_reset_date')
+      .eq('user_id', userData.id)
+      .maybeSingle()
+
+    const startOfMonth = new Date()
+    startOfMonth.setUTCDate(1)
+    startOfMonth.setUTCHours(0, 0, 0, 0)
+    const startOfMonthDate = startOfMonth.toISOString().split('T')[0]!
+
+    const videosProcessed =
+      usageRow && usageRow.last_reset_date >= startOfMonthDate
+        ? usageRow.videos_processed
+        : 0
+
     return NextResponse.json({
       subscription_status: status,
       plan_name: userData.plan_name || null,
       stripe_customer_id: userData.stripe_customer_id || null,
       is_active: isActive,
       stripe_subscription_id: subscriptionData?.stripe_subscription_id || null,
+      videos_processed: videosProcessed,
     });
   } catch (err) {
     console.error('Error fetching subscription')

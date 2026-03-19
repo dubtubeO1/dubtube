@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   }
 
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 90);
+  cutoff.setDate(cutoff.getDate() - 30);
   const cutoffIso = cutoff.toISOString();
 
   console.log(`[Retention] Running – cutoff: ${cutoffIso}`);
