@@ -42,7 +42,7 @@ export async function POST(
 
     const { data: project } = await supabaseAdmin
       .from('projects')
-      .select('id, user_id')
+      .select('id, user_id, video_r2_key')
       .eq('id', projectId)
       .single()
 
@@ -64,11 +64,18 @@ export async function POST(
       return NextResponse.json({ error: 'No translated text to regenerate' }, { status: 400 })
     }
 
-    if (!transcript.segment_audio_r2_key) {
-      return NextResponse.json({ error: 'No audio key for this segment' }, { status: 400 })
-    }
+    const voiceId = (transcript.voice_id as string | null) ?? DEFAULT_VOICE_ID
 
-    const voiceId = transcript.voice_id ?? DEFAULT_VOICE_ID
+    // Determine R2 key — use existing key or derive a new one from transcript ID
+    let r2Key = transcript.segment_audio_r2_key as string | null
+    if (!r2Key) {
+      const videoR2Key = project.video_r2_key as string | null
+      const clerkUserId = videoR2Key?.split('/')[0]
+      if (!clerkUserId) {
+        return NextResponse.json({ error: 'Could not determine storage path' }, { status: 500 })
+      }
+      r2Key = `${clerkUserId}/${projectId}/segment/segment_${transcriptId}.mp3`
+    }
 
     // Call ElevenLabs TTS
     const ttsResponse = await fetch(
@@ -101,18 +108,24 @@ export async function POST(
 
     const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer())
 
-    // Overwrite the same R2 key
     await r2.send(
       new PutObjectCommand({
         Bucket: bucketName,
-        Key: transcript.segment_audio_r2_key,
+        Key: r2Key,
         Body: audioBuffer,
         ContentType: 'audio/mpeg',
       }),
     )
 
-    // Return a fresh presigned GET URL
-    const url = await getPresignedReadUrl(transcript.segment_audio_r2_key, 3600)
+    // Persist the key if it was newly assigned
+    if (!transcript.segment_audio_r2_key) {
+      await supabaseAdmin
+        .from('transcripts')
+        .update({ segment_audio_r2_key: r2Key })
+        .eq('id', transcriptId)
+    }
+
+    const url = await getPresignedReadUrl(r2Key, 3600)
 
     return NextResponse.json({ url })
   } catch (err) {

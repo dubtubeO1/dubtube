@@ -21,7 +21,9 @@ import {
   ExternalLink,
   Info,
   X,
+  ChevronDown,
 } from 'lucide-react'
+import { ELEVENLABS_VOICES, RACHEL_VOICE_ID } from '@/lib/voices'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,10 @@ interface SpeakerRow {
   id: string
   speaker_id: string
   speaker_name: string | null
+  voice_id: string | null
+  is_cloned: boolean
+  el_cloned_voice_id: string | null
+  clone_error: string | null
 }
 
 // ─── Pipeline constants ───────────────────────────────────────────────────────
@@ -71,7 +77,7 @@ const PIPELINE_STAGES: { key: ProjectStatus; label: string; description: string 
   { key: 'queued', label: 'Queued', description: 'Waiting for the processing worker' },
   { key: 'transcribing', label: 'Transcribing', description: 'Extracting and transcribing audio' },
   { key: 'translating', label: 'Translating', description: 'Translating transcript segments' },
-  { key: 'generating_audio', label: 'Generating voices', description: 'Creating dubbed audio clips' },
+  { key: 'generating_audio', label: 'Generating voices', description: 'Cloning speaker voices with AI' },
   { key: 'completed', label: 'Complete', description: 'Transcript and voiceovers are ready' },
 ]
 
@@ -147,7 +153,9 @@ export default function ProjectPage() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set())
   const [retranslating, setRetranslating] = useState<Set<string>>(new Set())
+  const [generatingAudio, setGeneratingAudio] = useState<Set<string>>(new Set())
   const [playingId, setPlayingId] = useState<string | null>(null)
+  const [dismissedCloneErrors, setDismissedCloneErrors] = useState<Set<string>>(new Set())
   const [delivering, setDelivering] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [showDurationBanner, setShowDurationBanner] = useState(true)
@@ -322,18 +330,40 @@ export default function ProjectPage() {
 
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
 
-  // ── Playback ──────────────────────────────────────────────────────────────
+  // ── Playback (with on-demand audio generation) ────────────────────────────
 
   const handlePlay = useCallback(
-    (transcriptId: string) => {
-      const url = audioUrls[transcriptId]
-      if (!url) return
+    async (transcriptId: string) => {
+      // Toggle off if already playing this segment
       if (playingId === transcriptId) {
         audioRef.current?.pause()
         audioRef.current = null
         setPlayingId(null)
         return
       }
+
+      let url = audioUrls[transcriptId]
+
+      // On-demand generation: if no audio yet, call the regenerate endpoint
+      if (!url) {
+        if (generatingAudio.has(transcriptId)) return
+        setGeneratingAudio((prev) => new Set(prev).add(transcriptId))
+        try {
+          const res = await fetch(
+            `/api/projects/${projectId}/transcripts/${transcriptId}/regenerate`,
+            { method: 'POST' },
+          )
+          if (!res.ok) return
+          const data = (await res.json()) as { url: string }
+          url = data.url
+          setAudioUrls((prev) => ({ ...prev, [transcriptId]: url }))
+        } catch {
+          return
+        } finally {
+          setGeneratingAudio((prev) => { const n = new Set(prev); n.delete(transcriptId); return n })
+        }
+      }
+
       if (audioRef.current) { audioRef.current.pause(); audioRef.current = null }
       const audio = new Audio(url)
       audioRef.current = audio
@@ -342,7 +372,7 @@ export default function ProjectPage() {
       audio.onerror = () => { setPlayingId(null); audioRef.current = null }
       void audio.play()
     },
-    [audioUrls, playingId],
+    [audioUrls, playingId, projectId, generatingAudio],
   )
 
   // ── Regenerate (re-TTS from current translated text) ──────────────────────
@@ -570,6 +600,45 @@ export default function ProjectPage() {
       }
     },
     [speakerDrafts, projectId],
+  )
+
+  // ── Voice change ──────────────────────────────────────────────────────────
+
+  const handleVoiceChange = useCallback(
+    async (speakerId: string, speakerRowId: string, newVoiceId: string) => {
+      // Capture affected transcript IDs before any state update
+      const affectedIds = transcripts
+        .filter((t) => t.speaker_id === speakerId)
+        .map((t) => t.id)
+
+      // Optimistic updates
+      setSpeakers((prev) =>
+        prev.map((s) => (s.id === speakerRowId ? { ...s, voice_id: newVoiceId } : s)),
+      )
+      setTranscripts((prev) =>
+        prev.map((t) => (t.speaker_id === speakerId ? { ...t, voice_id: newVoiceId } : t)),
+      )
+      // Clear cached audio URLs for this speaker's segments (stale with old voice)
+      setAudioUrls((prev) => {
+        const next = { ...prev }
+        for (const id of affectedIds) delete next[id]
+        return next
+      })
+
+      try {
+        await fetch(`/api/projects/${projectId}/speakers/${speakerRowId}/voice`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ voice_id: newVoiceId }),
+        })
+      } catch {
+        // Revert on failure
+        setSpeakers((prev) =>
+          prev.map((s) => (s.id === speakerRowId ? { ...s, voice_id: null } : s)),
+        )
+      }
+    },
+    [projectId, transcripts],
   )
 
   const hasPendingEdits =
@@ -842,6 +911,30 @@ export default function ProjectPage() {
               </div>
             )}
 
+            {/* Clone error banners — one per speaker that failed cloning */}
+            {speakers
+              .filter((s) => s.clone_error && !dismissedCloneErrors.has(s.id))
+              .map((s) => (
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-700"
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-500" />
+                    <span>
+                      Voice cloning failed for <strong>{s.speaker_name ?? s.speaker_id}</strong> — using a default voice instead. You can pick a different voice below.
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setDismissedCloneErrors((prev) => new Set(prev).add(s.id))}
+                    className="shrink-0 text-amber-400 hover:text-amber-600 transition-colors"
+                    aria-label="Dismiss"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+
             {/* Duration match info banner */}
             {showDurationBanner && (
               <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300">
@@ -901,14 +994,14 @@ export default function ProjectPage() {
                     const isTranslDirty = transcript.id in draftTranslated
                     const isRegenerating = regenerating.has(transcript.id)
                     const isRetranslating = retranslating.has(transcript.id)
+                    const isGeneratingAudio = generatingAudio.has(transcript.id)
                     const isPlaying = playingId === transcript.id
-                    const hasAudio = !!audioUrls[transcript.id]
                     const isEditingSpeaker = editingTranscriptSpeakerId === transcript.id
 
                     return (
                       <div key={transcript.id} className="px-6 py-4 space-y-3">
-                        {/* Speaker label — shown above every segment, editable inline */}
-                        <div className="flex items-center gap-2">
+                        {/* Speaker label + voice selector */}
+                        <div className="flex items-center gap-3 flex-wrap">
                           {isEditingSpeaker && speaker ? (
                             <div className="flex items-center gap-2">
                               <input
@@ -961,6 +1054,31 @@ export default function ProjectPage() {
                               </span>
                               <Pencil className="w-3 h-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </button>
+                          )}
+
+                          {/* Voice dropdown — only shown when not in speaker name edit mode */}
+                          {!isEditingSpeaker && speaker && (
+                            <div className="relative">
+                              <select
+                                value={speaker.voice_id ?? RACHEL_VOICE_ID}
+                                onChange={(e) =>
+                                  void handleVoiceChange(speaker.speaker_id, speaker.id, e.target.value)
+                                }
+                                className="appearance-none text-xs text-slate-600 bg-white border border-slate-200 rounded-md pl-2.5 pr-7 py-1 focus:outline-none focus:ring-2 focus:ring-slate-400 cursor-pointer hover:bg-slate-50 transition-colors"
+                              >
+                                {speaker.el_cloned_voice_id && (
+                                  <option value={speaker.el_cloned_voice_id}>
+                                    Cloned Voice
+                                  </option>
+                                )}
+                                {ELEVENLABS_VOICES.map((v) => (
+                                  <option key={v.voice_id} value={v.voice_id}>
+                                    {v.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                            </div>
                           )}
                         </div>
 
@@ -1017,23 +1135,19 @@ export default function ProjectPage() {
                             />
                             <div className="flex items-center gap-2 flex-wrap">
                               <button
-                                onClick={() => handlePlay(transcript.id)}
-                                disabled={!hasAudio}
-                                title={
-                                  !hasAudio
-                                    ? 'No audio available'
-                                    : isPlaying
-                                      ? 'Pause'
-                                      : 'Play'
-                                }
+                                onClick={() => void handlePlay(transcript.id)}
+                                disabled={isGeneratingAudio || isRegenerating}
+                                title={isPlaying ? 'Pause' : 'Play'}
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                               >
-                                {isPlaying ? (
+                                {isGeneratingAudio ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : isPlaying ? (
                                   <Pause className="w-3.5 h-3.5" />
                                 ) : (
                                   <Play className="w-3.5 h-3.5" />
                                 )}
-                                {isPlaying ? 'Pause' : 'Play'}
+                                {isGeneratingAudio ? 'Generating…' : isPlaying ? 'Pause' : 'Play'}
                               </button>
                               <button
                                 onClick={() => void handleRegenerate(transcript.id)}

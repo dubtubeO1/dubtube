@@ -1,14 +1,9 @@
 [build]
-builder = "nixpacks"
+builder = "RAILPACK"
+buildCommand = "mkdir -p bin && curl -L -o bin/yt-dlp 'https://github.com/yt-dlp/yt-dlp-master-builds/releases/latest/download/yt-dlp' && chmod +x bin/yt-dlp && npm run build"
 
 [deploy]
-startCommand = "npm start"
+startCommand = "export PATH=\"/app/bin:$PATH\" && npm start"
 healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
-
-[build.healthcheck]
-timeout = 300
-
-[build.nixpacks]
-configPath = "nixpacks.toml"
